@@ -57,7 +57,10 @@ export interface NavMenuSection {
     id: string;
     label: string;
     items: NavMenuItem[];
+    icon?: string;
+    displayMode?: 'regular' | 'settings';
     /**
+     * @description
      * Control the display of this item based on the user permissions.
      */
     requiresPermission?: string | ((userPermissions: string[]) => boolean);
@@ -93,7 +96,7 @@ export interface ActionBarItem {
     buttonColor?: 'primary' | 'success' | 'warning';
     buttonStyle?: 'solid' | 'outline' | 'link';
     icon?: string;
-    requiresPermission?: string;
+    requiresPermission?: string | string[];
 }
 
 export type RouterLinkDefinition = ((route: ActivatedRoute) => any[]) | any[];

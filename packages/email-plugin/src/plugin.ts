@@ -1,4 +1,10 @@
-import { MiddlewareConsumer, NestModule, OnApplicationBootstrap } from '@nestjs/common';
+import {
+    Inject,
+    MiddlewareConsumer,
+    NestModule,
+    OnApplicationBootstrap,
+    OnApplicationShutdown,
+} from '@nestjs/common';
 import { ModuleRef } from '@nestjs/core';
 import {
     EventBus,
@@ -9,19 +15,25 @@ import {
     PluginCommonModule,
     ProcessContext,
     registerPluginStartupMessage,
+    RequestContext,
     Type,
+    UserInputError,
     VendurePlugin,
 } from '@vendure/core';
+import Module from 'module';
 
-import { isDevModeOptions } from './common';
+import { isDevModeOptions, resolveTransportSettings } from './common';
 import { EMAIL_PLUGIN_OPTIONS, loggerCtx } from './constants';
 import { DevMailbox } from './dev-mailbox';
 import { EmailProcessor } from './email-processor';
 import { EmailEventHandler, EmailEventHandlerWithAsyncData } from './event-handler';
+import { FileBasedTemplateLoader } from './template-loader';
 import {
     EmailPluginDevModeOptions,
     EmailPluginOptions,
+    EmailTransportOptions,
     EventWithContext,
+    InitializedEmailPluginOptions,
     IntermediateEmailDetails,
 } from './types';
 
@@ -85,6 +97,14 @@ import {
  * `node_modules/\@vendure/email-plugin/templates` to a location of your choice, and then point the `templatePath` config
  * property at that directory.
  *
+ * * ### Dynamic Email Templates
+ * Instead of passing a static value to `templatePath`, use `templateLoader` to define a template path.
+ * ```ts
+ *   EmailPlugin.init({
+ *    ...,
+ *    templateLoader: new FileBasedTemplateLoader(my/order-confirmation/templates)
+ *   })
+ * ```
  * ## Customizing templates
  *
  * Emails are generated from templates which use [MJML](https://mjml.io/) syntax. MJML is an open-source HTML-like markup
@@ -120,8 +140,87 @@ import {
  *
  * The `defaultEmailHandlers` array defines the default handlers such as for handling new account registration, order confirmation, password reset
  * etc. These defaults can be extended by adding custom templates for languages other than the default, or even completely new types of emails
- * which respond to any of the available [VendureEvents](/docs/typescript-api/events/). See the {@link EmailEventHandler} documentation for
- * details on how to do so.
+ * which respond to any of the available [VendureEvents](/docs/typescript-api/events/).
+ *
+ * A good way to learn how to create your own email handlers is to take a look at the
+ * [source code of the default handlers](https://github.com/vendure-ecommerce/vendure/blob/master/packages/email-plugin/src/default-email-handlers.ts).
+ * New handlers are defined in exactly the same way.
+ *
+ * It is also possible to modify the default handlers:
+ *
+ * ```TypeScript
+ * // Rather than importing `defaultEmailHandlers`, you can
+ * // import the handlers individually
+ * import {
+ *   orderConfirmationHandler,
+ *   emailVerificationHandler,
+ *   passwordResetHandler,
+ *   emailAddressChangeHandler,
+ * } from '\@vendure/email-plugin';
+ * import { CustomerService } from '\@vendure/core';
+ *
+ * // This allows you to then customize each handler to your needs.
+ * // For example, let's set a new subject line to the order confirmation:
+ * orderConfirmationHandler
+ *   .setSubject(`We received your order!`);
+ *
+ * // Another example: loading additional data and setting new
+ * // template variables.
+ * passwordResetHandler
+ *   .loadData(async ({ event, injector }) => {
+ *     const customerService = injector.get(CustomerService);
+ *     const customer = await customerService.findOneByUserId(event.ctx, event.user.id);
+ *     return { customer };
+ *   })
+ *   .setTemplateVars(event => ({
+ *     passwordResetToken: event.user.getNativeAuthenticationMethod().passwordResetToken,
+ *     customer: event.data.customer,
+ *   }));
+ *
+ * // Then you pass the handlers to the EmailPlugin init method
+ * // individually
+ * EmailPlugin.init({
+ *   handlers: [
+ *     orderConfirmationHandler,
+ *     emailVerificationHandler,
+ *     passwordResetHandler,
+ *     emailAddressChangeHandler,
+ *   ],
+ *   // ...
+ * }),
+ * ```
+ *
+ * For all available methods of extending a handler, see the {@link EmailEventHandler} documentation.
+ *
+ * ## Dynamic SMTP settings
+ *
+ * Instead of defining static transport settings, you can also provide a function that dynamically resolves
+ * channel aware transport settings.
+ *
+ * @example
+ * ```ts
+ * import { defaultEmailHandlers, EmailPlugin } from '\@vendure/email-plugin';
+ * import { MyTransportService } from './transport.services.ts';
+ * const config: VendureConfig = {
+ *   plugins: [
+ *     EmailPlugin.init({
+ *       handlers: defaultEmailHandlers,
+ *       templatePath: path.join(__dirname, 'static/email/templates'),
+ *       transport: (injector, ctx) => {
+ *         if (ctx) {
+ *           return injector.get(MyTransportService).getSettings(ctx);
+ *         } else {
+ *           return {
+                type: 'smtp',
+                host: 'smtp.example.com',
+                // ... etc.
+              }
+ *         }
+ *       }
+ *     }),
+ *   ],
+ * };
+ * ```
  *
  * ## Dev mode
  *
@@ -129,7 +228,7 @@ import {
  * file transport (See {@link FileTransportOptions}) and outputs emails as rendered HTML files in the directory specified by the
  * `outputPath` property.
  *
- * ```ts
+ * ```TypeScript
  * EmailPlugin.init({
  *   devMode: true,
  *   route: 'mailbox',
@@ -173,14 +272,15 @@ import {
  * };
  * ```
  *
- * @docsCategory EmailPlugin
+ * @docsCategory core plugins/EmailPlugin
  */
 @VendurePlugin({
     imports: [PluginCommonModule],
     providers: [{ provide: EMAIL_PLUGIN_OPTIONS, useFactory: () => EmailPlugin.options }, EmailProcessor],
+    compatibility: '^2.0.0',
 })
-export class EmailPlugin implements OnApplicationBootstrap, NestModule {
-    private static options: EmailPluginOptions | EmailPluginDevModeOptions;
+export class EmailPlugin implements OnApplicationBootstrap, OnApplicationShutdown, NestModule {
+    private static options: InitializedEmailPluginOptions;
     private devMailbox: DevMailbox | undefined;
     private jobQueue: JobQueue<IntermediateEmailDetails> | undefined;
     private testingProcessor: EmailProcessor | undefined;
@@ -192,25 +292,36 @@ export class EmailPlugin implements OnApplicationBootstrap, NestModule {
         private emailProcessor: EmailProcessor,
         private jobQueueService: JobQueueService,
         private processContext: ProcessContext,
+        @Inject(EMAIL_PLUGIN_OPTIONS) private options: InitializedEmailPluginOptions,
     ) {}
 
     /**
      * Set the plugin options.
      */
     static init(options: EmailPluginOptions | EmailPluginDevModeOptions): Type<EmailPlugin> {
-        this.options = options;
+        if (options.templateLoader) {
+            // eslint-disable-next-line @typescript-eslint/restrict-template-expressions
+            Logger.info(`Using custom template loader '${options.templateLoader.constructor.name}'`);
+        } else if (!options.templateLoader && options.templatePath) {
+            // TODO: this else-if can be removed when deprecated templatePath is removed,
+            // because we will either have a custom template loader, or the default loader with a default path
+            options.templateLoader = new FileBasedTemplateLoader(options.templatePath);
+        } else {
+            throw new Error('You must either supply a templatePath or provide a custom templateLoader');
+        }
+        this.options = options as InitializedEmailPluginOptions;
         return EmailPlugin;
     }
 
     /** @internal */
     async onApplicationBootstrap(): Promise<void> {
-        const options = EmailPlugin.options;
-
+        await this.initInjectableStrategies();
         await this.setupEventSubscribers();
-        if (!isDevModeOptions(options) && options.transport.type === 'testing') {
+        const transport = await resolveTransportSettings(this.options, new Injector(this.moduleRef));
+        if (!isDevModeOptions(this.options) && transport.type === 'testing') {
             // When running tests, we don't want to go through the JobQueue system,
             // so we just call the email sending logic directly.
-            this.testingProcessor = new EmailProcessor(options);
+            this.testingProcessor = new EmailProcessor(this.options, this.moduleRef);
             await this.testingProcessor.init();
         } else {
             await this.emailProcessor.init();
@@ -223,15 +334,36 @@ export class EmailPlugin implements OnApplicationBootstrap, NestModule {
         }
     }
 
-    configure(consumer: MiddlewareConsumer) {
-        const options = EmailPlugin.options;
+    async onApplicationShutdown() {
+        await this.destroyInjectableStrategies();
+    }
 
-        if (isDevModeOptions(options) && this.processContext.isServer) {
+    configure(consumer: MiddlewareConsumer) {
+        if (isDevModeOptions(this.options) && this.processContext.isServer) {
             Logger.info('Creating dev mailbox middleware', loggerCtx);
             this.devMailbox = new DevMailbox();
-            consumer.apply(this.devMailbox.serve(options)).forRoutes(options.route);
+            consumer.apply(this.devMailbox.serve(this.options)).forRoutes(this.options.route);
             this.devMailbox.handleMockEvent((handler, event) => this.handleEvent(handler, event));
-            registerPluginStartupMessage('Dev mailbox', options.route);
+            registerPluginStartupMessage('Dev mailbox', this.options.route);
+        }
+    }
+
+    private async initInjectableStrategies() {
+        const injector = new Injector(this.moduleRef);
+        if (typeof this.options.emailGenerator?.init === 'function') {
+            await this.options.emailGenerator.init(injector);
+        }
+        if (typeof this.options.emailSender?.init === 'function') {
+            await this.options.emailSender.init(injector);
+        }
+    }
+
+    private async destroyInjectableStrategies() {
+        if (typeof this.options.emailGenerator?.destroy === 'function') {
+            await this.options.emailGenerator.destroy();
+        }
+        if (typeof this.options.emailSender?.destroy === 'function') {
+            await this.options.emailSender.destroy();
         }
     }
 
@@ -264,7 +396,7 @@ export class EmailPlugin implements OnApplicationBootstrap, NestModule {
             } else if (this.testingProcessor) {
                 await this.testingProcessor.process(result);
             }
-        } catch (e) {
+        } catch (e: any) {
             Logger.error(e.message, loggerCtx, e.stack);
         }
     }

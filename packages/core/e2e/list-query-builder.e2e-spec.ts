@@ -3,6 +3,7 @@ import { mergeConfig } from '@vendure/core';
 import { createTestEnvironment } from '@vendure/testing';
 import gql from 'graphql-tag';
 import path from 'path';
+import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
 import { initialData } from '../../../e2e-common/e2e-initial-data';
 import { testConfig, TEST_SETUP_TIMEOUT_MS } from '../../../e2e-common/test-config';
@@ -29,7 +30,7 @@ describe('ListQueryBuilder', () => {
         await server.init({
             initialData,
             productsCsvPath: path.join(__dirname, 'fixtures/e2e-products-minimal.csv'),
-            customerCount: 1,
+            customerCount: 3,
         });
         await adminClient.asSuperAdmin();
     }, TEST_SETUP_TIMEOUT_MS);
@@ -248,6 +249,34 @@ describe('ListQueryBuilder', () => {
             expect(getItemLabels(testEntities.items)).toEqual(['B', 'D', 'E', 'F']);
         });
 
+        it('isNull true', async () => {
+            const { testEntities } = await adminClient.query(GET_LIST, {
+                options: {
+                    filter: {
+                        nullableString: {
+                            isNull: true,
+                        },
+                    },
+                },
+            });
+
+            expect(getItemLabels(testEntities.items)).toEqual(['B', 'D', 'F']);
+        });
+
+        it('isNull false', async () => {
+            const { testEntities } = await adminClient.query(GET_LIST, {
+                options: {
+                    filter: {
+                        nullableString: {
+                            isNull: false,
+                        },
+                    },
+                },
+            });
+
+            expect(getItemLabels(testEntities.items)).toEqual(['A', 'C', 'E']);
+        });
+
         describe('regex', () => {
             it('simple substring', async () => {
                 const { testEntities } = await adminClient.query(GET_LIST, {
@@ -327,7 +356,7 @@ describe('ListQueryBuilder', () => {
                 options: {
                     filter: {
                         ownerId: {
-                            eq: '13',
+                            eq: 'T_13',
                         },
                     },
                 },
@@ -341,7 +370,7 @@ describe('ListQueryBuilder', () => {
                 options: {
                     filter: {
                         ownerId: {
-                            notEq: '13',
+                            notEq: 'T_13',
                         },
                     },
                 },
@@ -355,7 +384,7 @@ describe('ListQueryBuilder', () => {
                 options: {
                     filter: {
                         ownerId: {
-                            in: ['10', '15'],
+                            in: ['T_10', 'T_15'],
                         },
                     },
                 },
@@ -364,18 +393,74 @@ describe('ListQueryBuilder', () => {
             expect(getItemLabels(testEntities.items)).toEqual(['A', 'F']);
         });
 
+        it('in with empty set', async () => {
+            const { testEntities } = await adminClient.query(GET_LIST, {
+                options: {
+                    filter: {
+                        ownerId: {
+                            in: [],
+                        },
+                    },
+                },
+            });
+
+            expect(getItemLabels(testEntities.items)).toEqual([]);
+        });
+
         it('notIn', async () => {
             const { testEntities } = await adminClient.query(GET_LIST, {
                 options: {
                     filter: {
                         ownerId: {
-                            notIn: ['10', '15'],
+                            notIn: ['T_10', 'T_15'],
                         },
                     },
                 },
             });
 
             expect(getItemLabels(testEntities.items)).toEqual(['B', 'C', 'D', 'E']);
+        });
+
+        it('notIn with empty set', async () => {
+            const { testEntities } = await adminClient.query(GET_LIST, {
+                options: {
+                    filter: {
+                        ownerId: {
+                            notIn: [],
+                        },
+                    },
+                },
+            });
+
+            expect(getItemLabels(testEntities.items)).toEqual(['A', 'B', 'C', 'D', 'E', 'F']);
+        });
+
+        it('isNull true', async () => {
+            const { testEntities } = await adminClient.query(GET_LIST, {
+                options: {
+                    filter: {
+                        nullableId: {
+                            isNull: true,
+                        },
+                    },
+                },
+            });
+
+            expect(getItemLabels(testEntities.items)).toEqual(['B', 'D', 'F']);
+        });
+
+        it('isNull false', async () => {
+            const { testEntities } = await adminClient.query(GET_LIST, {
+                options: {
+                    filter: {
+                        nullableId: {
+                            isNull: false,
+                        },
+                    },
+                },
+            });
+
+            expect(getItemLabels(testEntities.items)).toEqual(['A', 'C', 'E']);
         });
 
         describe('regex', () => {
@@ -464,6 +549,34 @@ describe('ListQueryBuilder', () => {
             });
 
             expect(getItemLabels(testEntities.items)).toEqual(['C', 'E', 'F']);
+        });
+
+        it('isNull true', async () => {
+            const { testEntities } = await adminClient.query(GET_LIST, {
+                options: {
+                    filter: {
+                        nullableBoolean: {
+                            isNull: true,
+                        },
+                    },
+                },
+            });
+
+            expect(getItemLabels(testEntities.items)).toEqual(['B', 'D', 'F']);
+        });
+
+        it('isNull false', async () => {
+            const { testEntities } = await adminClient.query(GET_LIST, {
+                options: {
+                    filter: {
+                        nullableBoolean: {
+                            isNull: false,
+                        },
+                    },
+                },
+            });
+
+            expect(getItemLabels(testEntities.items)).toEqual(['A', 'C', 'E']);
         });
     });
 
@@ -554,6 +667,34 @@ describe('ListQueryBuilder', () => {
 
             expect(getItemLabels(testEntities.items)).toEqual(['C', 'D', 'E']);
         });
+
+        it('isNull true', async () => {
+            const { testEntities } = await adminClient.query(GET_LIST, {
+                options: {
+                    filter: {
+                        nullableNumber: {
+                            isNull: true,
+                        },
+                    },
+                },
+            });
+
+            expect(getItemLabels(testEntities.items)).toEqual(['B', 'D', 'F']);
+        });
+
+        it('isNull false', async () => {
+            const { testEntities } = await adminClient.query(GET_LIST, {
+                options: {
+                    filter: {
+                        nullableNumber: {
+                            isNull: false,
+                        },
+                    },
+                },
+            });
+
+            expect(getItemLabels(testEntities.items)).toEqual(['A', 'C', 'E']);
+        });
     });
 
     describe('date filtering', () => {
@@ -628,6 +769,34 @@ describe('ListQueryBuilder', () => {
             });
 
             expect(getItemLabels(testEntities.items)).toEqual(['B']);
+        });
+
+        it('isNull true', async () => {
+            const { testEntities } = await adminClient.query(GET_LIST, {
+                options: {
+                    filter: {
+                        nullableDate: {
+                            isNull: true,
+                        },
+                    },
+                },
+            });
+
+            expect(getItemLabels(testEntities.items)).toEqual(['B', 'D', 'F']);
+        });
+
+        it('isNull false', async () => {
+            const { testEntities } = await adminClient.query(GET_LIST, {
+                options: {
+                    filter: {
+                        nullableDate: {
+                            isNull: false,
+                        },
+                    },
+                },
+            });
+
+            expect(getItemLabels(testEntities.items)).toEqual(['A', 'C', 'E']);
         });
     });
 
@@ -975,6 +1144,7 @@ describe('ListQueryBuilder', () => {
                 { languageCode: LanguageCode.de, name: 'fahrrad' },
             ],
         ];
+
         function getTestEntityTranslations(testEntities: { items: any[] }) {
             // Explicitly sort the order of the translations as it was being non-deterministic on
             // the mysql CI tests.
@@ -1016,6 +1186,89 @@ describe('ListQueryBuilder', () => {
             expect(testEntityTranslations).toEqual(allTranslations);
         });
     });
+
+    describe('customPropertyMap', () => {
+        it('filter by custom string field', async () => {
+            const { testEntities } = await shopClient.query(GET_LIST_WITH_ORDERS, {
+                options: {
+                    sort: {
+                        label: SortOrder.ASC,
+                    },
+                    filter: {
+                        customerLastName: { contains: 'zieme' },
+                    },
+                },
+            });
+
+            expect(testEntities.items).toEqual([
+                {
+                    id: 'T_1',
+                    label: 'A',
+                    name: 'apple',
+                    orderRelation: {
+                        customer: {
+                            firstName: 'Hayden',
+                            lastName: 'Zieme',
+                        },
+                        id: 'T_1',
+                    },
+                },
+                {
+                    id: 'T_4',
+                    label: 'D',
+                    name: 'dog',
+                    orderRelation: {
+                        customer: {
+                            firstName: 'Hayden',
+                            lastName: 'Zieme',
+                        },
+                        id: 'T_4',
+                    },
+                },
+            ]);
+        });
+
+        it('sort by custom string field', async () => {
+            const { testEntities } = await shopClient.query(GET_LIST_WITH_ORDERS, {
+                options: {
+                    sort: {
+                        customerLastName: SortOrder.ASC,
+                    },
+                },
+            });
+
+            expect(testEntities.items.map((i: any) => i.orderRelation.customer)).toEqual([
+                { firstName: 'Trevor', lastName: 'Donnelly' },
+                { firstName: 'Trevor', lastName: 'Donnelly' },
+                { firstName: 'Marques', lastName: 'Sawayn' },
+                { firstName: 'Marques', lastName: 'Sawayn' },
+                { firstName: 'Hayden', lastName: 'Zieme' },
+                { firstName: 'Hayden', lastName: 'Zieme' },
+            ]);
+        });
+    });
+
+    describe('relations in customFields', () => {
+        it('should resolve relations in customFields successfully', async () => {
+            const { testEntities } = await shopClient.query(GET_LIST_WITH_CUSTOM_FIELD_RELATION, {
+                options: {
+                    filter: {
+                        label: { eq: 'A' },
+                    },
+                },
+            });
+
+            expect(testEntities.items).toEqual([
+                {
+                    id: 'T_1',
+                    label: 'A',
+                    customFields: {
+                        relation: [{ id: 'T_1', data: 'A' }],
+                    },
+                },
+            ]);
+        });
+    });
 });
 
 const GET_LIST = gql`
@@ -1050,6 +1303,26 @@ const GET_LIST_WITH_TRANSLATIONS = gql`
     }
 `;
 
+const GET_LIST_WITH_ORDERS = gql`
+    query GetTestEntitiesWithTranslations($options: TestEntityListOptions) {
+        testEntities(options: $options) {
+            totalItems
+            items {
+                id
+                label
+                name
+                orderRelation {
+                    id
+                    customer {
+                        firstName
+                        lastName
+                    }
+                }
+            }
+        }
+    }
+`;
+
 const GET_ARRAY_LIST = gql`
     query GetTestEntitiesArray($options: TestEntityListOptions) {
         testEntitiesGetMany(options: $options) {
@@ -1058,6 +1331,23 @@ const GET_ARRAY_LIST = gql`
             name
             date
             price
+        }
+    }
+`;
+
+const GET_LIST_WITH_CUSTOM_FIELD_RELATION = gql`
+    query GetTestWithCustomFieldRelation($options: TestEntityListOptions) {
+        testEntities(options: $options) {
+            items {
+                id
+                label
+                customFields {
+                    relation {
+                        id
+                        data
+                    }
+                }
+            }
         }
     }
 `;

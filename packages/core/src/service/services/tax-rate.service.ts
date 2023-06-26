@@ -1,4 +1,4 @@
-import { CACHE_MANAGER, Inject, Injectable } from '@nestjs/common';
+import { Injectable } from '@nestjs/common';
 import {
     CreateTaxRateInput,
     DeletionResponse,
@@ -8,11 +8,12 @@ import {
 import { ID, PaginatedList } from '@vendure/common/lib/shared-types';
 
 import { RequestContext } from '../../api/common/request-context';
-import { RelationPaths } from '../../api/index';
-import { RequestContextCacheService } from '../../cache';
+import { RelationPaths } from '../../api/decorators/relations.decorator';
 import { EntityNotFoundError } from '../../common/error/errors';
+import { createSelfRefreshingCache, SelfRefreshingCache } from '../../common/self-refreshing-cache';
 import { ListQueryOptions } from '../../common/types/common-types';
 import { assertFound } from '../../common/utils';
+import { ConfigService } from '../../config/config.service';
 import { TransactionalConnection } from '../../connection/transactional-connection';
 import { CustomerGroup } from '../../entity/customer-group/customer-group.entity';
 import { TaxCategory } from '../../entity/tax-category/tax-category.entity';
@@ -23,8 +24,6 @@ import { TaxRateEvent } from '../../event-bus/events/tax-rate-event';
 import { TaxRateModificationEvent } from '../../event-bus/events/tax-rate-modification-event';
 import { ListQueryBuilder } from '../helpers/list-query-builder/list-query-builder';
 import { patchEntity } from '../helpers/utils/patch-entity';
-
-const activeTaxRatesKey = 'active-tax-rates';
 
 /**
  * @description
@@ -40,13 +39,22 @@ export class TaxRateService {
         name: 'No configured tax rate',
         id: '0',
     });
+    private activeTaxRates: SelfRefreshingCache<TaxRate[], [RequestContext]>;
 
     constructor(
         private connection: TransactionalConnection,
         private eventBus: EventBus,
         private listQueryBuilder: ListQueryBuilder,
-        private cacheService: RequestContextCacheService,
+        private configService: ConfigService,
     ) {}
+
+    /**
+     * When the app is bootstrapped, ensure the tax rate cache gets created
+     * @internal
+     */
+    async initTaxRates() {
+        await this.ensureCacheExists();
+    }
 
     findAll(
         ctx: RequestContext,
@@ -67,9 +75,13 @@ export class TaxRateService {
         taxRateId: ID,
         relations?: RelationPaths<TaxRate>,
     ): Promise<TaxRate | undefined> {
-        return this.connection.getRepository(ctx, TaxRate).findOne(taxRateId, {
-            relations: relations ?? ['category', 'zone', 'customerGroup'],
-        });
+        return this.connection
+            .getRepository(ctx, TaxRate)
+            .findOne({
+                where: { id: taxRateId },
+                relations: relations ?? ['category', 'zone', 'customerGroup'],
+            })
+            .then(result => result ?? undefined);
     }
 
     async create(ctx: RequestContext, input: CreateTaxRateInput): Promise<TaxRate> {
@@ -128,13 +140,14 @@ export class TaxRateService {
 
     async delete(ctx: RequestContext, id: ID): Promise<DeletionResponse> {
         const taxRate = await this.connection.getEntityOrThrow(ctx, TaxRate, id);
+        const deletedTaxRate = new TaxRate(taxRate);
         try {
             await this.connection.getRepository(ctx, TaxRate).remove(taxRate);
-            this.eventBus.publish(new TaxRateEvent(ctx, taxRate, 'deleted', id));
+            this.eventBus.publish(new TaxRateEvent(ctx, deletedTaxRate, 'deleted', id));
             return {
                 result: DeletionResult.DELETED,
             };
-        } catch (e) {
+        } catch (e: any) {
             return {
                 result: DeletionResult.NOT_DELETED,
                 message: e.toString(),
@@ -153,11 +166,11 @@ export class TaxRateService {
     }
 
     private async getActiveTaxRates(ctx: RequestContext): Promise<TaxRate[]> {
-        return this.cacheService.get(ctx, activeTaxRatesKey, () => this.findActiveTaxRates(ctx));
+        return this.activeTaxRates.value(ctx);
     }
 
     private async updateActiveTaxRates(ctx: RequestContext) {
-        this.cacheService.set(ctx, activeTaxRatesKey, await this.findActiveTaxRates(ctx));
+        await this.activeTaxRates.refresh(ctx);
     }
 
     private async findActiveTaxRates(ctx: RequestContext): Promise<TaxRate[]> {
@@ -166,6 +179,21 @@ export class TaxRateService {
             where: {
                 enabled: true,
             },
+        });
+    }
+
+    /**
+     * Ensures taxRate cache exists. If not, this method creates one.
+     */
+    private async ensureCacheExists() {
+        if (this.activeTaxRates) {
+            return;
+        }
+
+        this.activeTaxRates = await createSelfRefreshingCache({
+            name: 'TaxRateService.activeTaxRates',
+            ttl: this.configService.entityOptions.taxRateCacheTtl,
+            refresh: { fn: ctx => this.findActiveTaxRates(ctx), defaultArgs: [RequestContext.empty()] },
         });
     }
 }

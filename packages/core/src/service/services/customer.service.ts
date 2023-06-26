@@ -21,6 +21,7 @@ import {
     UpdateCustomerResult,
 } from '@vendure/common/lib/generated-types';
 import { ID, PaginatedList } from '@vendure/common/lib/shared-types';
+import { IsNull } from 'typeorm';
 
 import { RequestContext } from '../../api/common/request-context';
 import { RelationPaths } from '../../api/index';
@@ -44,10 +45,10 @@ import { TransactionalConnection } from '../../connection/transactional-connecti
 import { Address } from '../../entity/address/address.entity';
 import { NativeAuthenticationMethod } from '../../entity/authentication-method/native-authentication-method.entity';
 import { Channel } from '../../entity/channel/channel.entity';
-import { CustomerGroup } from '../../entity/customer-group/customer-group.entity';
 import { Customer } from '../../entity/customer/customer.entity';
+import { CustomerGroup } from '../../entity/customer-group/customer-group.entity';
 import { HistoryEntry } from '../../entity/history-entry/history-entry.entity';
-import { Order } from '../../entity/index';
+import { Order } from '../../entity/order/order.entity';
 import { User } from '../../entity/user/user.entity';
 import { EventBus } from '../../event-bus/event-bus';
 import { AccountRegistrationEvent } from '../../event-bus/events/account-registration-event';
@@ -99,13 +100,13 @@ export class CustomerService {
         const hasPostalCodeFilter = !!(options as CustomerListOptions)?.filter?.postalCode;
         if (hasPostalCodeFilter) {
             relations.push('addresses');
-            customPropertyMap.postalCode = 'address.postalCode';
+            customPropertyMap.postalCode = 'addresses.postalCode';
         }
         return this.listQueryBuilder
             .build(Customer, options, {
                 relations,
                 channelId: ctx.channelId,
-                where: { deletedAt: null },
+                where: { deletedAt: IsNull() },
                 ctx,
                 customPropertyMap,
             })
@@ -118,10 +119,12 @@ export class CustomerService {
         id: ID,
         relations: RelationPaths<Customer> = [],
     ): Promise<Customer | undefined> {
-        return this.connection.findOneInChannel(ctx, Customer, id, ctx.channelId, {
-            relations,
-            where: { deletedAt: null },
-        });
+        return this.connection
+            .findOneInChannel(ctx, Customer, id, ctx.channelId, {
+                relations,
+                where: { deletedAt: IsNull() },
+            })
+            .then(result => result ?? undefined);
     }
 
     /**
@@ -141,7 +144,7 @@ export class CustomerService {
         if (filterOnChannel) {
             query = query.andWhere('channel.id = :channelId', { channelId: ctx.channelId });
         }
-        return query.getOne();
+        return query.getOne().then(result => result ?? undefined);
     }
 
     /**
@@ -177,7 +180,7 @@ export class CustomerService {
             {
                 relations: ['groups'],
                 where: {
-                    deletedAt: null,
+                    deletedAt: IsNull(),
                 },
             },
         );
@@ -224,15 +227,14 @@ export class CustomerService {
             relations: ['channels'],
             where: {
                 emailAddress: input.emailAddress,
-                deletedAt: null,
+                deletedAt: IsNull(),
             },
         });
-        const existingUser = await this.connection.getRepository(ctx, User).findOne({
-            where: {
-                identifier: input.emailAddress,
-                deletedAt: null,
-            },
-        });
+        const existingUser = await this.userService.getUserByEmailAddress(
+            ctx,
+            input.emailAddress,
+            'customer',
+        );
 
         if (existingCustomer && existingUser) {
             // Customer already exists, bring to this Channel
@@ -326,6 +328,7 @@ export class CustomerService {
                     const existingUserWithEmailAddress = await this.userService.getUserByEmailAddress(
                         ctx,
                         input.emailAddress,
+                        'customer',
                     );
 
                     if (
@@ -661,7 +664,7 @@ export class CustomerService {
             relations: ['channels'],
             where: {
                 emailAddress: input.emailAddress,
-                deletedAt: null,
+                deletedAt: IsNull(),
             },
         });
         if (existing) {
@@ -685,7 +688,7 @@ export class CustomerService {
      */
     async createAddress(ctx: RequestContext, customerId: ID, input: CreateAddressInput): Promise<Address> {
         const customer = await this.connection.getEntityOrThrow(ctx, Customer, customerId, {
-            where: { deletedAt: null },
+            where: { deletedAt: IsNull() },
             relations: ['addresses'],
             channelId: ctx.channelId,
         });
@@ -771,9 +774,10 @@ export class CustomerService {
                 address: addressToLine(address),
             },
         });
+        const deletedAddress = new Address(address);
         await this.connection.getRepository(ctx, Address).remove(address);
         address.customer = customer;
-        this.eventBus.publish(new CustomerAddressEvent(ctx, address, 'deleted', id));
+        this.eventBus.publish(new CustomerAddressEvent(ctx, deletedAddress, 'deleted', id));
         return true;
     }
 
@@ -784,8 +788,10 @@ export class CustomerService {
         await this.connection
             .getRepository(ctx, Customer)
             .update({ id: customerId }, { deletedAt: new Date() });
-        // tslint:disable-next-line:no-non-null-assertion
-        await this.userService.softDelete(ctx, customer.user!.id);
+        // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
+        if (customer.user) {
+            await this.userService.softDelete(ctx, customer.user.id);
+        }
         this.eventBus.publish(new CustomerEvent(ctx, customer, 'deleted', customerId));
         return {
             result: DeletionResult.DELETED,
@@ -876,7 +882,7 @@ export class CustomerService {
             return {
                 result: DeletionResult.DELETED,
             };
-        } catch (e) {
+        } catch (e: any) {
             return {
                 result: DeletionResult.NOT_DELETED,
                 message: e.message,
@@ -891,7 +897,7 @@ export class CustomerService {
     ) {
         const result = await this.connection
             .getRepository(ctx, Address)
-            .findOne(addressId, { relations: ['customer', 'customer.addresses'] });
+            .findOne({ where: { id: addressId }, relations: ['customer', 'customer.addresses'] });
         if (result) {
             const customerAddressIds = result.customer.addresses
                 .map(a => a.id)
@@ -923,7 +929,7 @@ export class CustomerService {
         }
         const result = await this.connection
             .getRepository(ctx, Address)
-            .findOne(addressToDelete.id, { relations: ['customer', 'customer.addresses'] });
+            .findOne({ where: { id: addressToDelete.id }, relations: ['customer', 'customer.addresses'] });
         if (result) {
             const customerAddresses = result.customer.addresses;
             if (1 < customerAddresses.length) {

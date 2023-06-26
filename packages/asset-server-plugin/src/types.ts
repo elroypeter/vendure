@@ -16,7 +16,7 @@ export type ImageTransformFormat = 'jpg' | 'jpeg' | 'png' | 'webp' | 'avif';
  * * resize: Preserving aspect ratio, resizes the image to be as large as possible
  * while ensuring its dimensions are less than or equal to both those specified.
  *
- * @docsCategory AssetServerPlugin
+ * @docsCategory core plugins/AssetServerPlugin
  */
 export type ImageTransformMode = 'crop' | 'resize';
 
@@ -34,7 +34,7 @@ export type ImageTransformMode = 'crop' | 'resize';
  *
  * `http://localhost:3000/assets/some-asset.jpg?w=50&h=50&mode=crop`
  *
- * @docsCategory AssetServerPlugin
+ * @docsCategory core plugins/AssetServerPlugin
  */
 export interface ImageTransformPreset {
     name: string;
@@ -45,9 +45,29 @@ export interface ImageTransformPreset {
 
 /**
  * @description
+ * A configuration option for the Cache-Control header in the AssetServerPlugin asset response.
+ *
+ * @docsCategory core plugins/AssetServerPlugin
+ */
+export type CacheConfig = {
+    /**
+     * @description
+     * The max-age=N response directive indicates that the response remains fresh until N seconds after the response is generated.
+     */
+    maxAge: number;
+    /**
+     * @description
+     * The `private` response directive indicates that the response can be stored only in a private cache (e.g. local caches in browsers).
+     * The `public` response directive indicates that the response can be stored in a shared cache.
+     */
+    restriction?: 'public' | 'private';
+};
+
+/**
+ * @description
  * The configuration options for the AssetServerPlugin.
  *
- * @docsCategory AssetServerPlugin
+ * @docsCategory core plugins/AssetServerPlugin
  */
 export interface AssetServerOptions {
     /**
@@ -117,4 +137,13 @@ export interface AssetServerOptions {
     storageStrategyFactory?: (
         options: AssetServerOptions,
     ) => AssetStorageStrategy | Promise<AssetStorageStrategy>;
+    /**
+     * @description
+     * Configures the `Cache-Control` directive for response to control caching in browsers and shared caches (e.g. Proxies, CDNs).
+     * Defaults to publicly cached for 6 months.
+     *
+     * @default 'public, max-age=15552000'
+     * @since 1.9.3
+     */
+    cacheHeader?: CacheConfig | string;
 }

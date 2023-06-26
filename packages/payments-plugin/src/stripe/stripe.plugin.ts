@@ -17,8 +17,8 @@ import { StripePluginOptions } from './types';
  *
  * 1. You will need to create a Stripe account and get your secret key in the dashboard.
  * 2. Create a webhook endpoint in the Stripe dashboard (Developers -> Webhooks, "Add an endpoint") which listens to the `payment_intent.succeeded`
- * and `payment_intent.payment_failed` events. The URL should be `https://my-shop.com/payments/stripe`, where
- * `my-shop.com` is the host of your storefront application. *Note:* for local development, you'll need to use
+ * and `payment_intent.payment_failed` events. The URL should be `https://my-server.com/payments/stripe`, where
+ * `my-server.com` is the host of your Vendure server. *Note:* for local development, you'll need to use
  * the Stripe CLI to test your webhook locally. See the _local development_ section below.
  * 3. Get the signing secret for the newly created webhook.
  * 4. Install the Payments plugin and the Stripe Node library:
@@ -39,14 +39,13 @@ import { StripePluginOptions } from './types';
  *
  *     plugins: [
  *       StripePlugin.init({
- *         apiKey: process.env.YOUR_STRIPE_SECRET_KEY,
- *         webhookSigningSecret: process.env.YOUR_STRIPE_WEBHOOK_SIGNING_SECRET,
  *         // This prevents different customers from using the same PaymentIntent
  *         storeCustomersInStripe: true,
  *       }),
  *     ]
  *     ````
  * 2. Create a new PaymentMethod in the Admin UI, and select "Stripe payments" as the handler.
+ * 3. Set the webhook secret and API key in the PaymentMethod form.
  *
  * ## Storefront usage
  *
@@ -154,7 +153,7 @@ import { StripePluginOptions } from './types';
  *    ```
  * 4. The Stripe CLI will create a webhook signing secret you can then use in your config of the StripePlugin.
  *
- * @docsCategory payments-plugin
+ * @docsCategory core plugins/PaymentsPlugin
  * @docsPage StripePlugin
  */
 @VendurePlugin({
@@ -192,11 +191,12 @@ import { StripePluginOptions } from './types';
     shopApiExtensions: {
         schema: gql`
             extend type Mutation {
-                createStripePaymentIntent: String
+                createStripePaymentIntent: String!
             }
         `,
         resolvers: [StripeResolver],
     },
+    compatibility: '^2.0.0',
 })
 export class StripePlugin {
     static options: StripePluginOptions;

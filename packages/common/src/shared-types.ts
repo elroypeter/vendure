@@ -1,4 +1,4 @@
-// tslint:disable:no-shadowed-variable
+/* eslint-disable no-shadow,@typescript-eslint/no-shadow */
 // prettier-ignore
 import { LanguageCode, LocalizedString } from './generated-types';
 
@@ -15,9 +15,9 @@ export type DeepPartial<T> = {
               ? ReadonlyArray<DeepPartial<U>>
               : DeepPartial<T[P]>);
 };
-// tslint:enable:no-shadowed-variable
+/* eslint-enable no-shadow, @typescript-eslint/no-shadow */
 
-// tslint:disable:ban-types
+/* eslint-disable @typescript-eslint/ban-types */
 /**
  * A recursive implementation of Required<T>.
  * Source: https://github.com/microsoft/TypeScript/issues/15012#issuecomment-365453623
@@ -29,13 +29,13 @@ export type DeepRequired<T, U extends object | undefined = undefined> = T extend
               : DeepRequired<NonNullable<T[P]>, U>;
       }
     : T;
-// tslint:enable:ban-types
+/* eslint-enable @typescript-eslint/ban-types */
 
 /**
  * A type representing the type rather than instance of a class.
  */
 export interface Type<T> extends Function {
-    // tslint:disable-next-line:callable-types
+    // eslint-disable-next-line @typescript-eslint/prefer-function-type
     new (...args: any[]): T;
 }
 
@@ -87,6 +87,7 @@ export type ID = string | number;
  * string       | varchar                               | String
  * localeString | varchar                               | String
  * text         | longtext(m), text(p,s)                | String
+ * localText    | longtext(m), text(p,s)                | String
  * int          | int                                   | Int
  * float        | double precision                      | Float
  * boolean      | tinyint (m), bool (p), boolean (s)    | Boolean
@@ -106,7 +107,8 @@ export type CustomFieldType =
     | 'boolean'
     | 'datetime'
     | 'relation'
-    | 'text';
+    | 'text'
+    | 'localeText';
 
 /**
  * @description
@@ -136,6 +138,7 @@ export type DefaultFormComponentId =
     | 'date-form-input'
     | 'facet-value-form-input'
     | 'json-editor-form-input'
+    | 'html-editor-form-input'
     | 'number-form-input'
     | 'password-form-input'
     | 'product-selector-form-input'
@@ -155,17 +158,18 @@ export type DefaultFormComponentId =
  * @docsCategory ConfigurableOperationDef
  */
 type DefaultFormConfigHash = {
-    'boolean-form-input': {};
-    'currency-form-input': {};
-    'customer-group-form-input': {};
+    'boolean-form-input': Record<string, never>;
+    'currency-form-input': Record<string, never>;
+    'customer-group-form-input': Record<string, never>;
     'date-form-input': { min?: string; max?: string; yearRange?: number };
-    'facet-value-form-input': {};
+    'facet-value-form-input': Record<string, never>;
     'json-editor-form-input': { height?: string };
+    'html-editor-form-input': { height?: string };
     'number-form-input': { min?: number; max?: number; step?: number; prefix?: string; suffix?: string };
-    'password-form-input': {};
-    'product-selector-form-input': {};
-    'relation-form-input': {};
-    'rich-text-form-input': {};
+    'password-form-input': Record<string, never>;
+    'product-selector-form-input': Record<string, never>;
+    'relation-form-input': Record<string, never>;
+    'rich-text-form-input': Record<string, never>;
     'select-form-input': {
         options?: Array<{ value: string; label?: Array<Omit<LocalizedString, '__typename'>> }>;
     };
@@ -173,11 +177,11 @@ type DefaultFormConfigHash = {
     'textarea-form-input': {
         spellcheck?: boolean;
     };
-    'asset-form-input': {};
+    'asset-form-input': Record<string, never>;
     'product-multi-form-input': {
         selectionMode?: 'product' | 'variant';
     };
-    'combination-mode-form-input': {};
+    'combination-mode-form-input': Record<string, never>;
 };
 
 export type DefaultFormComponentUiConfig<T extends DefaultFormComponentId | string> =
@@ -207,12 +211,12 @@ export type CustomFieldsObject = { [key: string]: any };
  * The values are loaded at run-time by the Admin UI app, and allow core configuration to be
  * managed without the need to re-build the application.
  *
- * @docsCategory AdminUiPlugin
+ * @docsCategory core plugins/AdminUiPlugin
  */
 export interface AdminUiConfig {
     /**
      * @description
-     * The hostname of the Vendure server which the admin ui will be making API calls
+     * The hostname of the Vendure server which the admin UI will be making API calls
      * to. If set to "auto", the Admin UI app will determine the hostname from the
      * current location (i.e. `window.location.hostname`).
      *
@@ -221,7 +225,7 @@ export interface AdminUiConfig {
     apiHost: string | 'auto';
     /**
      * @description
-     * The port of the Vendure server which the admin ui will be making API calls
+     * The port of the Vendure server which the admin UI will be making API calls
      * to. If set to "auto", the Admin UI app will determine the port from the
      * current location (i.e. `window.location.port`).
      *
@@ -303,6 +307,13 @@ export interface AdminUiConfig {
     hideVersion?: boolean;
     /**
      * @description
+     * A url of a custom image to be used on the login screen, to override the images provided by Vendure's login image server.
+     *
+     * @since 1.9.0
+     */
+    loginImageUrl?: string;
+    /**
+     * @description
      * Allows you to provide default reasons for a refund or cancellation. This will be used in the
      * refund/cancel dialog. The values can be literal strings (e.g. "Not in stock") or translation
      * tokens (see [Adding Admin UI Translations](/docs/plugins/extending-the-admin-ui/adding-ui-translations/)).
@@ -317,12 +328,12 @@ export interface AdminUiConfig {
  * @description
  * Configures the path to a custom-build of the Admin UI app.
  *
- * @docsCategory common
+ * @docsCategory core plugins/AdminUiPlugin
  */
 export interface AdminUiAppConfig {
     /**
      * @description
-     * The path to the compiled admin ui app files. If not specified, an internal
+     * The path to the compiled admin UI app files. If not specified, an internal
      * default build is used. This path should contain the `vendure-ui-config.json` file,
      * index.html, the compiled js bundles etc.
      */
@@ -345,12 +356,12 @@ export interface AdminUiAppConfig {
  * @description
  * Information about the Admin UI app dev server.
  *
- * @docsCategory common
+ * @docsCategory core plugins/AdminUiPlugin
  */
 export interface AdminUiAppDevModeConfig {
     /**
      * @description
-     * The path to the uncompiled ui app source files. This path should contain the `vendure-ui-config.json` file.
+     * The path to the uncompiled UI app source files. This path should contain the `vendure-ui-config.json` file.
      */
     sourcePath: string;
     /**

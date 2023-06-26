@@ -11,11 +11,12 @@ import { RequestContext } from '../../api/common/request-context';
 import { RelationPaths } from '../../api/index';
 import { Translated } from '../../common/types/locale-types';
 import { assertFound, idsAreEqual } from '../../common/utils';
-import { Logger } from '../../config/index';
+import { Logger } from '../../config/logger/vendure-logger';
 import { TransactionalConnection } from '../../connection/transactional-connection';
-import { Product, ProductOption, ProductOptionTranslation, ProductVariant } from '../../entity/index';
+import { Product } from '../../entity/product/product.entity';
 import { ProductOptionGroupTranslation } from '../../entity/product-option-group/product-option-group-translation.entity';
 import { ProductOptionGroup } from '../../entity/product-option-group/product-option-group.entity';
+import { ProductVariant } from '../../entity/product-variant/product-variant.entity';
 import { EventBus } from '../../event-bus';
 import { ProductOptionGroupEvent } from '../../event-bus/events/product-option-group-event';
 import { CustomFieldRelationService } from '../helpers/custom-field-relation/custom-field-relation.service';
@@ -67,10 +68,11 @@ export class ProductOptionGroupService {
     ): Promise<Translated<ProductOptionGroup> | undefined> {
         return this.connection
             .getRepository(ctx, ProductOptionGroup)
-            .findOne(id, {
+            .findOne({
+                where: { id },
                 relations: relations ?? ['options'],
             })
-            .then(group => group && this.translator.translate(group, ctx, ['options']));
+            .then(group => (group && this.translator.translate(group, ctx, ['options'])) ?? undefined);
     }
 
     getOptionGroupsByProductId(ctx: RequestContext, id: ID): Promise<Array<Translated<ProductOptionGroup>>> {
@@ -133,6 +135,7 @@ export class ProductOptionGroupService {
         const optionGroup = await this.connection.getEntityOrThrow(ctx, ProductOptionGroup, id, {
             relations: ['options', 'product'],
         });
+        const deletedOptionGroup = new ProductOptionGroup(optionGroup);
         const inUseByActiveProducts = await this.isInUseByOtherProducts(ctx, optionGroup, productId);
         if (0 < inUseByActiveProducts) {
             return {
@@ -144,7 +147,9 @@ export class ProductOptionGroupService {
             };
         }
 
-        for (const option of optionGroup.options) {
+        const optionsToDelete = optionGroup.options && optionGroup.options.filter(group => !group.deletedAt);
+
+        for (const option of optionsToDelete) {
             const { result, message } = await this.productOptionService.delete(ctx, option.id);
             if (result === DeletionResult.NOT_DELETED) {
                 await this.connection.rollBackTransaction(ctx);
@@ -159,28 +164,22 @@ export class ProductOptionGroupService {
         } else {
             // hard delete
 
-            const product = await this.connection
-                .getRepository(ctx, Product)
-                .findOne(productId, { relations: ['optionGroups'] });
+            const product = await this.connection.getRepository(ctx, Product).findOne({
+                where: { id: productId },
+                relations: ['optionGroups'],
+            });
             if (product) {
                 product.optionGroups = product.optionGroups.filter(og => !idsAreEqual(og.id, id));
                 await this.connection.getRepository(ctx, Product).save(product, { reload: false });
             }
 
-            // TODO: V2 rely on onDelete: CASCADE rather than this manual loop
-            for (const translation of optionGroup.translations) {
-                await this.connection
-                    .getRepository(ctx, ProductOptionGroupTranslation)
-                    .remove(translation as ProductOptionGroupTranslation);
-            }
-
             try {
                 await this.connection.getRepository(ctx, ProductOptionGroup).remove(optionGroup);
-            } catch (e) {
+            } catch (e: any) {
                 Logger.error(e.message, undefined, e.stack);
             }
         }
-        this.eventBus.publish(new ProductOptionGroupEvent(ctx, optionGroup, 'deleted', id));
+        this.eventBus.publish(new ProductOptionGroupEvent(ctx, deletedOptionGroup, 'deleted', id));
         return {
             result: DeletionResult.DELETED,
         };

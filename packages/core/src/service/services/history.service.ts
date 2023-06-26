@@ -3,6 +3,7 @@ import { UpdateCustomerInput as UpdateCustomerShopInput } from '@vendure/common/
 import {
     HistoryEntryListOptions,
     HistoryEntryType,
+    OrderLineInput,
     UpdateAddressInput,
     UpdateCustomerInput,
 } from '@vendure/common/lib/generated-types';
@@ -24,7 +25,7 @@ import { RefundState } from '../helpers/refund-state-machine/refund-state';
 
 import { AdministratorService } from './administrator.service';
 
-export type CustomerHistoryEntryData = {
+export interface CustomerHistoryEntryData {
     [HistoryEntryType.CUSTOMER_REGISTERED]: {
         strategy: string;
     };
@@ -50,9 +51,9 @@ export type CustomerHistoryEntryData = {
     [HistoryEntryType.CUSTOMER_ADDRESS_DELETED]: {
         address: string;
     };
-    [HistoryEntryType.CUSTOMER_PASSWORD_UPDATED]: {};
-    [HistoryEntryType.CUSTOMER_PASSWORD_RESET_REQUESTED]: {};
-    [HistoryEntryType.CUSTOMER_PASSWORD_RESET_VERIFIED]: {};
+    [HistoryEntryType.CUSTOMER_PASSWORD_UPDATED]: Record<string, never>;
+    [HistoryEntryType.CUSTOMER_PASSWORD_RESET_REQUESTED]: Record<string, never>;
+    [HistoryEntryType.CUSTOMER_PASSWORD_RESET_VERIFIED]: Record<string, never>;
     [HistoryEntryType.CUSTOMER_EMAIL_UPDATE_REQUESTED]: {
         oldEmailAddress: string;
         newEmailAddress: string;
@@ -64,9 +65,9 @@ export type CustomerHistoryEntryData = {
     [HistoryEntryType.CUSTOMER_NOTE]: {
         note: string;
     };
-};
+}
 
-export type OrderHistoryEntryData = {
+export interface OrderHistoryEntryData {
     [HistoryEntryType.ORDER_STATE_TRANSITION]: {
         from: OrderState;
         to: OrderState;
@@ -85,7 +86,7 @@ export type OrderHistoryEntryData = {
         fulfillmentId: ID;
     };
     [HistoryEntryType.ORDER_CANCELLATION]: {
-        orderItemIds: ID[];
+        lines: OrderLineInput[];
         shippingCancelled: boolean;
         reason?: string;
     };
@@ -108,7 +109,7 @@ export type OrderHistoryEntryData = {
     [HistoryEntryType.ORDER_MODIFIED]: {
         modificationId: ID;
     };
-};
+}
 
 export interface CreateCustomerHistoryEntryArgs<T extends keyof CustomerHistoryEntryData> {
     customerId: ID;
@@ -144,6 +145,96 @@ export interface UpdateCustomerHistoryEntryArgs<T extends keyof CustomerHistoryE
  * Contains methods relating to {@link HistoryEntry} entities. Histories are timelines of actions
  * related to a particular Customer or Order, recording significant events such as creation, state changes,
  * notes, etc.
+ *
+ * ## Custom History Entry Types
+ *
+ * Since Vendure v1.9.0, it is possible to define custom HistoryEntry types.
+ *
+ * Let's take an example where we have some Customers who are businesses. We want to verify their
+ * tax ID in order to allow them wholesale rates. As part of this verification, we'd like to add
+ * an entry into the Customer's history with data about the tax ID verification.
+ *
+ * First of all we'd extend the GraphQL `HistoryEntryType` enum for our new type as part of a plugin
+ *
+ * @example
+ * ```TypeScript
+ * import { PluginCommonModule, VendurePlugin } from '\@vendure/core';
+ * import { VerificationService } from './verification.service';
+ *
+ * \@VendurePlugin({
+ *   imports: [PluginCommonModule],
+ *   adminApiExtensions: {
+ *     schema: gql`
+ *       extend enum HistoryEntryType {
+ *         CUSTOMER_TAX_ID_VERIFICATION
+ *       }
+ *     `,
+ *   },
+ *   providers: [VerificationService],
+ * })
+ * export class TaxIDVerificationPlugin {}
+ * ```
+ *
+ * Next we need to create a TypeScript type definition file where we extend the `CustomerHistoryEntryData` interface. This is done
+ * via TypeScript's [declaration merging](https://www.typescriptlang.org/docs/handbook/declaration-merging.html#merging-interfaces)
+ * and [ambient modules](https://www.typescriptlang.org/docs/handbook/modules.html#ambient-modules) features.
+ *
+ * @example
+ * ```TypeScript
+ * // types.ts
+ * import { CustomerHistoryEntryData } from '\@vendure/core';
+ *
+ * export const CUSTOMER_TAX_ID_VERIFICATION = 'CUSTOMER_TAX_ID_VERIFICATION';
+ *
+ * declare module '@vendure/core' {
+ *   interface CustomerHistoryEntryData {
+ *     [CUSTOMER_TAX_ID_VERIFICATION]: {
+ *       taxId: string;
+ *       valid: boolean;
+ *       name?: string;
+ *       address?: string;
+ *     };
+ *   }
+ * }
+ * ```
+ *
+ * Note: it works exactly the same way if we wanted to add a custom type for Order history, except in that case we'd extend the
+ * `OrderHistoryEntryData` interface instead.
+ *
+ * Now that we have our types set up, we can use the HistoryService to add a new HistoryEntry in a type-safe manner:
+ *
+ * @example
+ * ```TypeScript
+ * // verification.service.ts
+ * import { Injectable } from '\@nestjs/common';
+ * import { RequestContext } from '\@vendure/core';
+ * import { CUSTOMER_TAX_ID_VERIFICATION } from './types';
+ *
+ * \@Injectable()
+ * export class VerificationService {
+ *   constructor(private historyService: HistoryService) {}
+ *
+ *   async verifyTaxId(ctx: RequestContext, customerId: ID, taxId: string) {
+ *     const result = await someTaxIdCheckingService(taxId);
+ *
+ *     await this.historyService.createHistoryEntryForCustomer({
+ *       customerId,
+ *       ctx,
+ *       type: CUSTOMER_TAX_ID_VERIFICATION,
+ *       data: {
+ *         taxId,
+ *         valid: result.isValid,
+ *         name: result.companyName,
+ *         address: result.registeredAddress,
+ *       },
+ *     });
+ *   }
+ * }
+ * ```
+ * {{% alert %}}
+ * It is also possible to define a UI component to display custom history entry types. See the
+ * [Custom History Timeline Components guide]({{< relref "custom-timeline-components" >}}).
+ * {{% /alert %}}
  *
  * @docsCategory services
  */
@@ -262,8 +353,9 @@ export class HistoryService {
 
     async deleteOrderHistoryEntry(ctx: RequestContext, id: ID): Promise<void> {
         const entry = await this.connection.getEntityOrThrow(ctx, OrderHistoryEntry, id);
+        const deletedEntry = new OrderHistoryEntry(entry);
         await this.connection.getRepository(ctx, OrderHistoryEntry).remove(entry);
-        this.eventBus.publish(new HistoryEntryEvent(ctx, entry, 'deleted', 'order', id));
+        this.eventBus.publish(new HistoryEntryEvent(ctx, deletedEntry, 'deleted', 'order', id));
     }
 
     async updateCustomerHistoryEntry<T extends keyof CustomerHistoryEntryData>(
@@ -288,14 +380,15 @@ export class HistoryService {
 
     async deleteCustomerHistoryEntry(ctx: RequestContext, id: ID): Promise<void> {
         const entry = await this.connection.getEntityOrThrow(ctx, CustomerHistoryEntry, id);
+        const deletedEntry = new CustomerHistoryEntry(entry);
         await this.connection.getRepository(ctx, CustomerHistoryEntry).remove(entry);
-        this.eventBus.publish(new HistoryEntryEvent(ctx, entry, 'deleted', 'customer', id));
+        this.eventBus.publish(new HistoryEntryEvent(ctx, deletedEntry, 'deleted', 'customer', id));
     }
 
     private async getAdministratorFromContext(ctx: RequestContext): Promise<Administrator | undefined> {
         const administrator = ctx.activeUserId
             ? await this.administratorService.findOneByUserId(ctx, ctx.activeUserId)
-            : undefined;
-        return administrator;
+            : null;
+        return administrator ?? undefined;
     }
 }

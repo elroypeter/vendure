@@ -1,6 +1,6 @@
 import { Type } from '@vendure/common/lib/shared-types';
 import { assertNever } from '@vendure/common/lib/shared-utils';
-import { Connection, ConnectionOptions } from 'typeorm';
+import { Connection, DataSourceOptions } from 'typeorm';
 import { DateUtils } from 'typeorm/util/DateUtils';
 
 import { InternalServerError, UserInputError } from '../../../common/error/errors';
@@ -20,7 +20,7 @@ import { getCalculatedColumns } from './get-calculated-columns';
 
 export interface WhereCondition {
     clause: string;
-    parameters: { [param: string]: string | number };
+    parameters: { [param: string]: string | number | string[] };
 }
 
 type AllOperators = StringOperators & BooleanOperators & NumberOperators & DateOperators & ListOperators;
@@ -85,7 +85,7 @@ function buildWhereCondition(
     operator: Operator,
     operand: any,
     argIndex: number,
-    dbType: ConnectionOptions['type'],
+    dbType: DataSourceOptions['type'],
 ): WhereCondition {
     switch (operator) {
         case 'eq':
@@ -104,6 +104,7 @@ function buildWhereCondition(
             return {
                 clause: `${fieldName} ${LIKE} :arg${argIndex}`,
                 parameters: {
+                    // eslint-disable-next-line @typescript-eslint/restrict-template-expressions
                     [`arg${argIndex}`]: `%${typeof operand === 'string' ? operand.trim() : operand}%`,
                 },
             };
@@ -112,19 +113,38 @@ function buildWhereCondition(
             const LIKE = dbType === 'postgres' ? 'ILIKE' : 'LIKE';
             return {
                 clause: `${fieldName} NOT ${LIKE} :arg${argIndex}`,
+                // eslint-disable-next-line @typescript-eslint/restrict-template-expressions
                 parameters: { [`arg${argIndex}`]: `%${operand.trim()}%` },
             };
         }
-        case 'in':
-            return {
-                clause: `${fieldName} IN (:...arg${argIndex})`,
-                parameters: { [`arg${argIndex}`]: operand },
-            };
-        case 'notIn':
-            return {
-                clause: `${fieldName} NOT IN (:...arg${argIndex})`,
-                parameters: { [`arg${argIndex}`]: operand },
-            };
+        case 'in': {
+            if (Array.isArray(operand) && operand.length) {
+                return {
+                    clause: `${fieldName} IN (:...arg${argIndex})`,
+                    parameters: { [`arg${argIndex}`]: operand },
+                };
+            } else {
+                // "in" with an empty set should always return nothing
+                return {
+                    clause: '1 = 0',
+                    parameters: {},
+                };
+            }
+        }
+        case 'notIn': {
+            if (Array.isArray(operand) && operand.length) {
+                return {
+                    clause: `${fieldName} NOT IN (:...arg${argIndex})`,
+                    parameters: { [`arg${argIndex}`]: operand },
+                };
+            } else {
+                // "notIn" with an empty set should always return all
+                return {
+                    clause: '1 = 1',
+                    parameters: {},
+                };
+            }
+        }
         case 'regex':
             return {
                 clause: getRegexpClause(fieldName, argIndex, dbType),
@@ -160,6 +180,11 @@ function buildWhereCondition(
                     [`arg${argIndex}_b`]: convertDate(operand.end),
                 },
             };
+        case 'isNull':
+            return {
+                clause: operand === true ? `${fieldName} IS NULL` : `${fieldName} IS NOT NULL`,
+                parameters: {},
+            };
         default:
             assertNever(operator);
     }
@@ -183,16 +208,16 @@ function convertDate(input: Date | string | number): string | number {
 /**
  * Returns a valid regexp clause based on the current DB driver type.
  */
-function getRegexpClause(fieldName: string, argIndex: number, dbType: ConnectionOptions['type']): string {
+function getRegexpClause(fieldName: string, argIndex: number, dbType: DataSourceOptions['type']): string {
     switch (dbType) {
         case 'mariadb':
         case 'mysql':
         case 'sqljs':
         case 'better-sqlite3':
-        case 'aurora-data-api':
+        case 'aurora-mysql':
             return `${fieldName} REGEXP :arg${argIndex}`;
         case 'postgres':
-        case 'aurora-data-api-pg':
+        case 'aurora-postgres':
         case 'cockroachdb':
             return `${fieldName} ~* :arg${argIndex}`;
         // The node-sqlite3 driver does not support user-defined functions

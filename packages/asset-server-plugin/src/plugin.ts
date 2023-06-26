@@ -16,7 +16,7 @@ import fs from 'fs-extra';
 import path from 'path';
 
 import { getValidFormat } from './common';
-import { loggerCtx } from './constants';
+import { DEFAULT_CACHE_HEADER, loggerCtx } from './constants';
 import { defaultAssetStorageStrategyFactory } from './default-asset-storage-strategy-factory';
 import { HashedAssetNamingStrategy } from './hashed-asset-naming-strategy';
 import { SharpAssetPreviewStrategy } from './sharp-asset-preview-strategy';
@@ -134,11 +134,12 @@ import { AssetServerOptions, ImageTransformPreset } from './types';
  * By default, the AssetServerPlugin will cache every transformed image, so that the transformation only needs to be performed a single time for
  * a given configuration. Caching can be disabled per-request by setting the `?cache=false` query parameter.
  *
- * @docsCategory AssetServerPlugin
+ * @docsCategory core plugins/AssetServerPlugin
  */
 @VendurePlugin({
     imports: [PluginCommonModule],
     configuration: config => AssetServerPlugin.configure(config),
+    compatibility: '^2.0.0',
 })
 export class AssetServerPlugin implements NestModule, OnApplicationBootstrap {
     private static assetStorage: AssetStorageStrategy;
@@ -151,6 +152,7 @@ export class AssetServerPlugin implements NestModule, OnApplicationBootstrap {
         { name: 'large', width: 800, height: 800, mode: 'resize' },
     ];
     private static options: AssetServerOptions;
+    private cacheHeader: string;
 
     /**
      * @description
@@ -181,7 +183,7 @@ export class AssetServerPlugin implements NestModule, OnApplicationBootstrap {
     constructor(private processContext: ProcessContext) {}
 
     /** @internal */
-    onApplicationBootstrap(): void | Promise<void> {
+    onApplicationBootstrap(): void {
         if (this.processContext.isWorker) {
             return;
         }
@@ -193,6 +195,20 @@ export class AssetServerPlugin implements NestModule, OnApplicationBootstrap {
                 } else {
                     this.presets.push(preset);
                 }
+            }
+        }
+
+        // Configure Cache-Control header
+        const { cacheHeader } = AssetServerPlugin.options;
+        if (!cacheHeader) {
+            this.cacheHeader = DEFAULT_CACHE_HEADER;
+        } else {
+            if (typeof cacheHeader === 'string') {
+                this.cacheHeader = cacheHeader;
+            } else {
+                this.cacheHeader = [cacheHeader.restriction, `max-age: ${cacheHeader.maxAge}`]
+                    .filter(value => !!value)
+                    .join(', ');
             }
         }
 
@@ -231,9 +247,10 @@ export class AssetServerPlugin implements NestModule, OnApplicationBootstrap {
                     mimeType = (await fromBuffer(file))?.mime || 'application/octet-stream';
                 }
                 res.contentType(mimeType);
-                res.setHeader('content-security-policy', `default-src 'self'`);
+                res.setHeader('content-security-policy', "default-src 'self'");
+                res.setHeader('Cache-Control', this.cacheHeader);
                 res.send(file);
-            } catch (e) {
+            } catch (e: any) {
                 const err = new Error('File not found');
                 (err as any).status = 404;
                 return next(err);
@@ -255,7 +272,7 @@ export class AssetServerPlugin implements NestModule, OnApplicationBootstrap {
                     let file: Buffer;
                     try {
                         file = await AssetServerPlugin.assetStorage.readFileToBuffer(decodedReqPath);
-                    } catch (err) {
+                    } catch (_err: any) {
                         res.status(404).send('Resource not found');
                         return;
                     }
@@ -275,10 +292,10 @@ export class AssetServerPlugin implements NestModule, OnApplicationBootstrap {
                             mimeType = (await fromBuffer(imageBuffer))?.mime || 'image/jpeg';
                         }
                         res.set('Content-Type', mimeType);
-                        res.setHeader('content-security-policy', `default-src 'self'`);
+                        res.setHeader('content-security-policy', "default-src 'self'");
                         res.send(imageBuffer);
                         return;
-                    } catch (e) {
+                    } catch (e: any) {
                         Logger.error(e, loggerCtx, e.stack);
                         res.status(500).send(e.message);
                         return;
@@ -291,6 +308,7 @@ export class AssetServerPlugin implements NestModule, OnApplicationBootstrap {
 
     private getFileNameFromRequest(req: Request): string {
         const { w, h, mode, preset, fpx, fpy, format } = req.query;
+        /* eslint-disable @typescript-eslint/restrict-template-expressions */
         const focalPoint = fpx && fpy ? `_fpx${fpx}_fpy${fpy}` : '';
         const imageFormat = getValidFormat(format);
         let imageParamHash: string | null = null;
@@ -302,7 +320,10 @@ export class AssetServerPlugin implements NestModule, OnApplicationBootstrap {
             if (this.presets && !!this.presets.find(p => p.name === preset)) {
                 imageParamHash = this.md5(`_transform_pre_${preset}${focalPoint}${imageFormat}`);
             }
+        } else if (imageFormat) {
+            imageParamHash = this.md5(`_transform_${imageFormat}`);
         }
+        /* eslint-enable @typescript-eslint/restrict-template-expressions */
 
         const decodedReqPath = decodeURIComponent(req.path);
         if (imageParamHash) {

@@ -15,7 +15,7 @@ This is a complete example of how to implement a simple plugin step-by-step.
 
 ## Example: RandomCatPlugin
 
-Let's learn about Vendure plugins by writing a plugin which defines a new database entity and a GraphQL mutation.
+Let's learn about Vendure plugins by writing a plugin that defines a new database entity and a GraphQL mutation.
 
 This plugin will add a new mutation, `addRandomCat`, to the GraphQL API which allows us to conveniently link a random cat image from [http://random.cat](http://random.cat) to any product in our catalog.
 
@@ -74,7 +74,7 @@ To use decorators with TypeScript, you must set the "emitDecoratorMetadata" and 
 
 ### Step 3: Define the new mutation
 
-Next we will define how the GraphQL API should be extended:
+Next, we will define how the GraphQL API should be extended:
 
 ```TypeScript
 import gql from 'graphql-tag';
@@ -121,7 +121,7 @@ Some explanations of this code are in order:
 * We are able to use Nest's dependency injection to inject an instance of our `CatFetcher` class into the constructor of the resolver. We are also injecting an instance of the built-in [ProductService class]({{< relref "product-service" >}}), which is responsible for operations on Products.
 * We use the `@Transaction()` decorator to ensure that all database operations in this resolver are run within a transaction. This ensures that if any part of it fails, all changes will be rolled back, keeping our data in a consistent state. For more on this, see the [Transaction Decorator docs]({{< relref "transaction-decorator" >}}).
 * We use the `@Mutation()` decorator to mark this method as a resolver for the GraphQL mutation with the corresponding name.
-* The `@Allow()` decorator enables us to define permissions restrictions on the mutation. Only those users whose permissions include `UpdateCatalog` may perform this operation. For a full list of available permissions, see the [Permission enum]({{< relref "/docs/graphql-api/admin/enums" >}}#permission). Plugins may also define custom permissions, see [Defining custom permissions]({{< relref "defining-custom-permissions" >}}).
+* The `@Allow()` decorator enables us to define permissions restrictions on the mutation. Only those users whose permissions include `UpdateCatalog` may perform this operation. For a full list of available permissions, see the [Permission enum]({{< relref "/graphql-api/admin/enums" >}}#permission). Plugins may also define custom permissions, see [Defining custom permissions]({{< relref "defining-custom-permissions" >}}).
 * The `@Ctx()` decorator injects the current [RequestContext]({{< relref "request-context" >}}) into the resolver. This provides information about the current request such as the current Session, User and Channel. It is required by most of the internal service methods.
 * The `@Args()` decorator injects the arguments passed to the mutation as an object.
 
@@ -141,7 +141,7 @@ export class RandomCatPlugin {}
 
 ### Step 6: Declare any providers used in the resolver
 
-In order that out resolver is able to use Nest's dependency injection to inject and instance of `CatFetcher`, we must add it to the `providers` array in our plugin:
+In order that our resolver is able to use Nest's dependency injection to inject an instance of `CatFetcher`, we must add it to the `providers` array in our plugin:
 
 ```TypeScript
 @VendurePlugin({
@@ -169,6 +169,19 @@ Now that we've defined the new mutation and we have a resolver capable of handli
   configuration: config => {
     // omitted
   }
+})
+export class RandomCatPlugin {}
+```
+
+### Step 9: Specify version compatibility
+
+Since Vendure v2.0.0, it is possible for a plugin to specify which versions of Vendure core it is compatible with. This is especially
+important if the plugin is intended to be made publicly available via npm or another package registry.
+
+```TypeScript
+@VendurePlugin({
+  // imports: [ etc. ]
+  compatibility: '^2.0.0'  
 })
 export class RandomCatPlugin {}
 ```
@@ -280,7 +293,8 @@ export class RandomCatResolver {
       name: 'catImageUrl',
     });
     return config;
-  }
+  },
+  compatibility: '^2.0.0',
 })
 export class RandomCatPlugin {}
 ```

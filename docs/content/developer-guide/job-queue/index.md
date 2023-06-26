@@ -40,7 +40,7 @@ The actual queue part is defined by the configured [JobQueueStrategy]({{< relref
 
 If no strategy is defined, Vendure uses an [in-memory store]({{< relref "in-memory-job-queue-strategy" >}}) of the contents of each queue. While this has the advantage of requiring no external dependencies, it is not suitable for production because when the server is stopped, the entire queue will be lost and any pending jobs will never be processed. Moreover, it cannot be used when running the worker as a separate process.
 
-A better alternative is to use the [DefaultJobQueuePlugin]({{< relref "default-job-queue-plugin" >}}) (which will be used in a standard `@vendure/create` installation), which configures Vendure to use the [SqlJobQueueStrategy]({{< relref "sql-job-queue-strategy" >}}). This strategy uses the database as a queue, and means that event if the Vendure server stops, pending jobs will be persisted and upon re-start, they will be processed.
+A better alternative is to use the [DefaultJobQueuePlugin]({{< relref "default-job-queue-plugin" >}}) (which will be used in a standard `@vendure/create` installation), which configures Vendure to use the [SqlJobQueueStrategy]({{< relref "sql-job-queue-strategy" >}}). This strategy uses the database as a queue, and means that even if the Vendure server stops, pending jobs will be persisted and upon re-start, they will be processed.
 
 It is also possible to implement your own JobQueueStrategy to take advantage of other technologies. Examples include RabbitMQ, Google Cloud Pub Sub & Amazon SQS. It may make sense to implement a custom strategy based on one of these if the default database-based approach does not meet your performance requirements.
 
@@ -52,7 +52,7 @@ In this case it is recommended to try the [BullMQJobQueuePlugin]({{< relref "bul
 
 ## Using Job Queues in a plugin
 
-If you create a [Vendure plugin]({{< relref "/docs/plugins" >}}) which involves some long-running tasks, you can also make use of the job queue. See the [JobQueue plugin example]({{< relref "using-job-queue-service" >}}) for a detailed annotated example.
+If you create a [Vendure plugin]({{< relref "/plugins" >}}) which involves some long-running tasks, you can also make use of the job queue. See the [JobQueue plugin example]({{< relref "using-job-queue-service" >}}) for a detailed annotated example.
 
 {{< alert "primary" >}}
 A real example of this can be seen in the [EmailPlugin source](https://github.com/vendure-ecommerce/vendure/blob/master/packages/email-plugin/src/plugin.ts)

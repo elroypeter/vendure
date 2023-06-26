@@ -28,11 +28,13 @@ import { BullMQPluginOptions } from './types';
  *
  * ## Installation
  *
- * `yarn add \@vendure/job-queue-plugin bullmq`
+ * `yarn add \@vendure/job-queue-plugin bullmq@1`
  *
  * or
  *
- * `npm install \@vendure/job-queue-plugin bullmq`
+ * `npm install \@vendure/job-queue-plugin bullmq@1`
+ *
+ * **Note:** The v1.x version of this plugin is designed to work with bullmq v1.x.
  *
  * @example
  * ```ts
@@ -95,7 +97,7 @@ import { BullMQPluginOptions } from './types';
  * };
  * ```
  *
- * @docsCategory job-queue-plugin
+ * @docsCategory core plugins/JobQueuePlugin
  */
 @VendurePlugin({
     imports: [PluginCommonModule],
@@ -109,6 +111,7 @@ import { BullMQPluginOptions } from './types';
         { provide: BULLMQ_PLUGIN_OPTIONS, useFactory: () => BullMQJobQueuePlugin.options },
         RedisHealthIndicator,
     ],
+    compatibility: '^2.0.0',
 })
 export class BullMQJobQueuePlugin {
     static options: BullMQPluginOptions;

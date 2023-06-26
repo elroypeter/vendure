@@ -1,19 +1,10 @@
-import {
-    ChangeDetectionStrategy,
-    Component,
-    EventEmitter,
-    Input,
-    OnChanges,
-    Output,
-    SimpleChanges,
-} from '@angular/core';
+import { ChangeDetectionStrategy, Component, EventEmitter, Input, OnChanges, Output, SimpleChanges } from '@angular/core';
 
-import { GetAssetList } from '../../../common/generated-types';
 import { SelectionManager } from '../../../common/utilities/selection-manager';
 import { ModalService } from '../../../providers/modal/modal.service';
 import { AssetPreviewDialogComponent } from '../asset-preview-dialog/asset-preview-dialog.component';
 
-export type AssetLike = GetAssetList.Items;
+import { AssetLike } from './asset-gallery.types';
 
 @Component({
     selector: 'vdr-asset-gallery',
@@ -42,7 +33,7 @@ export class AssetGalleryComponent implements OnChanges {
     ngOnChanges(changes: SimpleChanges) {
         if (this.assets) {
             for (const asset of this.selectionManager.selection) {
-                // Update and selected assets with any changes
+                // Update any selected assets with any changes
                 const match = this.assets.find(a => a.id === asset.id);
                 if (match) {
                     Object.assign(asset, match);

@@ -1,6 +1,6 @@
 import { SelectQueryBuilder } from 'typeorm';
 
-import { Logger } from '../config/index';
+import { Logger } from '../config/logger/vendure-logger';
 
 /**
  * This is a work-around for this issue: https://github.com/vendure-ecommerce/vendure/issues/1664
@@ -35,25 +35,32 @@ import { Logger } from '../config/index';
  * TODO: Ideally create a minimal reproduction case and report in the TypeORM repo for an upstream fix.
  */
 
-export function removeCustomFieldsWithEagerRelations(
+export function removeCustomFieldsWithEagerRelations<T extends string>(
     qb: SelectQueryBuilder<any>,
-    relations: string[] = [],
-): string[] {
+    relations: T[] = [],
+): T[] {
     let resultingRelations = relations;
     const mainAlias = qb.expressionMap.mainAlias;
     const customFieldsMetadata = mainAlias?.metadata.embeddeds.find(
         metadata => metadata.propertyName === 'customFields',
     );
     if (customFieldsMetadata) {
-        const customFieldRelationsWithEagerRelations = customFieldsMetadata.relations.filter(
-            relation => !!relation.inverseEntityMetadata.ownRelations.find(or => or.isEager === true),
-        );
+        const customFieldRelationsWithEagerRelations = customFieldsMetadata.relations.filter(relation => {
+            return (
+                !!relation.inverseEntityMetadata.ownRelations.find(or => or.isEager === true) ||
+                relation.inverseEntityMetadata.embeddeds.find(
+                    em => em.propertyName === 'customFields' && em.relations.find(emr => emr.isEager),
+                )
+            );
+        });
         for (const relation of customFieldRelationsWithEagerRelations) {
             const propertyName = relation.propertyName;
             const relationsToRemove = relations.filter(r => r.startsWith(`customFields.${propertyName}`));
             if (relationsToRemove.length) {
                 Logger.debug(
-                    `TransactionalConnection.findOneInChannel cannot automatically join relation [${mainAlias?.metadata.name}.customFields.${propertyName}]`,
+                    `TransactionalConnection.findOneInChannel cannot automatically join relation [${
+                        mainAlias?.metadata.name ?? '(unknown)'
+                    }.customFields.${propertyName}]`,
                 );
                 resultingRelations = relations.filter(r => !r.startsWith(`customFields.${propertyName}`));
             }

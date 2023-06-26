@@ -126,10 +126,11 @@ import {
  * };
  * ```
  *
- * @docsCategory EmailPlugin
+ * @docsCategory core plugins/EmailPlugin
  */
 export class EmailEventHandler<T extends string = string, Event extends EventWithContext = EventWithContext> {
     private setRecipientFn: (event: Event) => string;
+    private setLanguageCodeFn: (event: Event) => LanguageCode | undefined;
     private setTemplateVarsFn: SetTemplateVarsFn<Event>;
     private setAttachmentsFn?: SetAttachmentsFn<Event>;
     private setOptionalAddressFieldsFn?: SetOptionalAddressFieldsFn<Event>;
@@ -175,6 +176,19 @@ export class EmailEventHandler<T extends string = string, Event extends EventWit
      */
     setRecipient(setRecipientFn: (event: Event) => string): EmailEventHandler<T, Event> {
         this.setRecipientFn = setRecipientFn;
+        return this;
+    }
+
+    /**
+     * @description
+     * A function which allows to override the language of the email. If not defined, the language from the context will be used.
+     *
+     * @since 1.8.0
+     */
+    setLanguageCode(
+        setLanguageCodeFn: (event: Event) => LanguageCode | undefined,
+    ): EmailEventHandler<T, Event> {
+        this.setLanguageCodeFn = setLanguageCodeFn;
         return this;
     }
 
@@ -254,6 +268,9 @@ export class EmailEventHandler<T extends string = string, Event extends EventWit
      * @description
      * Add configuration for another template other than the default `"body.hbs"`. Use this method to define specific
      * templates for channels or languageCodes other than the default.
+     *
+     * @deprecated Define a custom TemplateLoader on plugin initalization to define templates based on the RequestContext.
+     * E.g. `EmailPlugin.init({ templateLoader: new CustomTemplateLoader() })`
      */
     addTemplate(config: EmailTemplateConfig): EmailEventHandler<T, Event> {
         this.configurations.push(config);
@@ -343,7 +360,8 @@ export class EmailEventHandler<T extends string = string, Event extends EventWit
             );
         }
         const { ctx } = event;
-        const configuration = this.getBestConfiguration(ctx.channel.code, ctx.languageCode);
+        const languageCode = this.setLanguageCodeFn?.(event) || ctx.languageCode;
+        const configuration = this.getBestConfiguration(ctx.channel.code, languageCode);
         const subject = configuration ? configuration.subject : this.defaultSubject;
         if (subject == null) {
             throw new Error(
@@ -356,12 +374,13 @@ export class EmailEventHandler<T extends string = string, Event extends EventWit
         let attachmentsArray: EmailAttachment[] = [];
         try {
             attachmentsArray = (await this.setAttachmentsFn?.(event)) ?? [];
-        } catch (e) {
+        } catch (e: any) {
             Logger.error(e, loggerCtx, e.stack);
         }
         const attachments = await serializeAttachments(attachmentsArray);
         const optionalAddressFields = (await this.setOptionalAddressFieldsFn?.(event)) ?? {};
         return {
+            ctx: event.ctx.serialize(),
             type: this.type,
             recipient,
             from: this.from,
@@ -414,7 +433,7 @@ export class EmailEventHandler<T extends string = string, Event extends EventWit
  * Identical to the {@link EmailEventHandler} but with a `data` property added to the `event` based on the result
  * of the `.loadData()` function.
  *
- * @docsCategory EmailPlugin
+ * @docsCategory core plugins/EmailPlugin
  */
 export class EmailEventHandlerWithAsyncData<
     Data,

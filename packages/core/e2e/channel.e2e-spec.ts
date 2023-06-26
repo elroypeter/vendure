@@ -1,4 +1,4 @@
-/* tslint:disable:no-non-null-assertion */
+/* eslint-disable @typescript-eslint/no-non-null-assertion */
 import { DEFAULT_CHANNEL_CODE } from '@vendure/common/lib/shared-constants';
 import {
     createErrorResultGuard,
@@ -8,34 +8,25 @@ import {
 } from '@vendure/testing';
 import gql from 'graphql-tag';
 import path from 'path';
+import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
 import { initialData } from '../../../e2e-common/e2e-initial-data';
-import { testConfig, TEST_SETUP_TIMEOUT_MS } from '../../../e2e-common/test-config';
+import { TEST_SETUP_TIMEOUT_MS, testConfig } from '../../../e2e-common/test-config';
 
+import * as Codegen from './graphql/generated-e2e-admin-types';
 import {
-    AssignProductsToChannel,
-    ChannelFragment,
-    CreateAdministrator,
-    CreateChannel,
-    CreateRole,
     CurrencyCode,
-    DeleteChannel,
     DeletionResult,
     ErrorCode,
-    GetChannels,
-    GetCustomerList,
-    GetProductWithVariants,
     LanguageCode,
-    Me,
     Permission,
-    UpdateChannel,
-    UpdateGlobalLanguages,
 } from './graphql/generated-e2e-admin-types';
 import {
     ASSIGN_PRODUCT_TO_CHANNEL,
     CREATE_ADMINISTRATOR,
     CREATE_CHANNEL,
     CREATE_ROLE,
+    GET_CHANNELS,
     GET_CUSTOMER_LIST,
     GET_PRODUCT_WITH_VARIANTS,
     ME,
@@ -47,12 +38,11 @@ import { assertThrowsWithMessage } from './utils/assert-throws-with-message';
 describe('Channels', () => {
     const { server, adminClient, shopClient } = createTestEnvironment(testConfig());
     const SECOND_CHANNEL_TOKEN = 'second_channel_token';
-    let secondChannelAdminRole: CreateRole.CreateRole;
-    let customerUser: GetCustomerList.Items;
+    let secondChannelAdminRole: Codegen.CreateRoleMutation['createRole'];
+    let customerUser: Codegen.GetCustomerListQuery['customers']['items'][number];
 
-    const channelGuard: ErrorResultGuard<ChannelFragment> = createErrorResultGuard<ChannelFragment>(
-        input => !!input.defaultLanguageCode,
-    );
+    const channelGuard: ErrorResultGuard<Codegen.ChannelFragment> =
+        createErrorResultGuard<Codegen.ChannelFragment>(input => !!input.defaultLanguageCode);
 
     beforeAll(async () => {
         await server.init({
@@ -62,12 +52,12 @@ describe('Channels', () => {
         });
         await adminClient.asSuperAdmin();
 
-        const { customers } = await adminClient.query<GetCustomerList.Query, GetCustomerList.Variables>(
-            GET_CUSTOMER_LIST,
-            {
-                options: { take: 1 },
-            },
-        );
+        const { customers } = await adminClient.query<
+            Codegen.GetCustomerListQuery,
+            Codegen.GetCustomerListQueryVariables
+        >(GET_CUSTOMER_LIST, {
+            options: { take: 1 },
+        });
         customerUser = customers.items[0];
     }, TEST_SETUP_TIMEOUT_MS);
 
@@ -76,20 +66,20 @@ describe('Channels', () => {
     });
 
     it('createChannel returns error result defaultLanguageCode not available', async () => {
-        const { createChannel } = await adminClient.query<CreateChannel.Mutation, CreateChannel.Variables>(
-            CREATE_CHANNEL,
-            {
-                input: {
-                    code: 'second-channel',
-                    token: SECOND_CHANNEL_TOKEN,
-                    defaultLanguageCode: LanguageCode.zh,
-                    currencyCode: CurrencyCode.GBP,
-                    pricesIncludeTax: true,
-                    defaultShippingZoneId: 'T_1',
-                    defaultTaxZoneId: 'T_1',
-                },
+        const { createChannel } = await adminClient.query<
+            Codegen.CreateChannelMutation,
+            Codegen.CreateChannelMutationVariables
+        >(CREATE_CHANNEL, {
+            input: {
+                code: 'second-channel',
+                token: SECOND_CHANNEL_TOKEN,
+                defaultLanguageCode: LanguageCode.zh,
+                currencyCode: CurrencyCode.GBP,
+                pricesIncludeTax: true,
+                defaultShippingZoneId: 'T_1',
+                defaultTaxZoneId: 'T_1',
             },
-        );
+        });
         channelGuard.assertErrorResult(createChannel);
 
         expect(createChannel.message).toBe(
@@ -100,20 +90,20 @@ describe('Channels', () => {
     });
 
     it('create a new Channel', async () => {
-        const { createChannel } = await adminClient.query<CreateChannel.Mutation, CreateChannel.Variables>(
-            CREATE_CHANNEL,
-            {
-                input: {
-                    code: 'second-channel',
-                    token: SECOND_CHANNEL_TOKEN,
-                    defaultLanguageCode: LanguageCode.en,
-                    currencyCode: CurrencyCode.GBP,
-                    pricesIncludeTax: true,
-                    defaultShippingZoneId: 'T_1',
-                    defaultTaxZoneId: 'T_1',
-                },
+        const { createChannel } = await adminClient.query<
+            Codegen.CreateChannelMutation,
+            Codegen.CreateChannelMutationVariables
+        >(CREATE_CHANNEL, {
+            input: {
+                code: 'second-channel',
+                token: SECOND_CHANNEL_TOKEN,
+                defaultLanguageCode: LanguageCode.en,
+                currencyCode: CurrencyCode.GBP,
+                pricesIncludeTax: true,
+                defaultShippingZoneId: 'T_1',
+                defaultTaxZoneId: 'T_1',
             },
-        );
+        });
         channelGuard.assertSuccess(createChannel);
 
         expect(createChannel).toEqual({
@@ -132,8 +122,22 @@ describe('Channels', () => {
         });
     });
 
+    it('update currencyCode', async () => {
+        const { updateChannel } = await adminClient.query<
+            Codegen.UpdateChannelMutation,
+            Codegen.UpdateChannelMutationVariables
+        >(UPDATE_CHANNEL, {
+            input: {
+                id: 'T_1',
+                currencyCode: CurrencyCode.MYR,
+            },
+        });
+        channelGuard.assertSuccess(updateChannel);
+        expect(updateChannel.currencyCode).toBe('MYR');
+    });
+
     it('superadmin has all permissions on new channel', async () => {
-        const { me } = await adminClient.query<Me.Query>(ME);
+        const { me } = await adminClient.query<Codegen.MeQuery>(ME);
 
         expect(me!.channels.length).toBe(2);
 
@@ -141,12 +145,12 @@ describe('Channels', () => {
         const nonOwnerPermissions = Object.values(Permission).filter(
             p => p !== Permission.Owner && p !== Permission.Public,
         );
-        expect(secondChannelData!.permissions).toEqual(nonOwnerPermissions);
+        expect(secondChannelData!.permissions.sort()).toEqual(nonOwnerPermissions);
     });
 
     it('customer has Authenticated permission on new channel', async () => {
         await shopClient.asUserWithCredentials(customerUser.emailAddress, 'test');
-        const { me } = await shopClient.query<Me.Query>(ME);
+        const { me } = await shopClient.query<Codegen.MeQuery>(ME);
 
         expect(me!.channels.length).toBe(2);
 
@@ -166,23 +170,23 @@ describe('Channels', () => {
     });
 
     it('createRole on second Channel', async () => {
-        const { createRole } = await adminClient.query<CreateRole.Mutation, CreateRole.Variables>(
-            CREATE_ROLE,
-            {
-                input: {
-                    description: 'second channel admin',
-                    code: 'second-channel-admin',
-                    channelIds: ['T_2'],
-                    permissions: [
-                        Permission.ReadCatalog,
-                        Permission.ReadSettings,
-                        Permission.ReadAdministrator,
-                        Permission.CreateAdministrator,
-                        Permission.UpdateAdministrator,
-                    ],
-                },
+        const { createRole } = await adminClient.query<
+            Codegen.CreateRoleMutation,
+            Codegen.CreateRoleMutationVariables
+        >(CREATE_ROLE, {
+            input: {
+                description: 'second channel admin',
+                code: 'second-channel-admin',
+                channelIds: ['T_2'],
+                permissions: [
+                    Permission.ReadCatalog,
+                    Permission.ReadSettings,
+                    Permission.ReadAdministrator,
+                    Permission.CreateAdministrator,
+                    Permission.UpdateAdministrator,
+                ],
             },
-        );
+        });
 
         expect(createRole.channels).toEqual([
             {
@@ -197,8 +201,8 @@ describe('Channels', () => {
 
     it('createAdministrator with second-channel-admin role', async () => {
         const { createAdministrator } = await adminClient.query<
-            CreateAdministrator.Mutation,
-            CreateAdministrator.Variables
+            Codegen.CreateAdministratorMutation,
+            Codegen.CreateAdministratorMutationVariables
         >(CREATE_ADMINISTRATOR, {
             input: {
                 firstName: 'Admin',
@@ -216,29 +220,32 @@ describe('Channels', () => {
         'cannot create role on channel for which admin does not have CreateAdministrator permission',
         assertThrowsWithMessage(async () => {
             await adminClient.asUserWithCredentials('admin2@test.com', 'test');
-            await adminClient.query<CreateRole.Mutation, CreateRole.Variables>(CREATE_ROLE, {
-                input: {
-                    description: 'read default channel catalog',
-                    code: 'read default channel catalog',
-                    channelIds: ['T_1'],
-                    permissions: [Permission.ReadCatalog],
+            await adminClient.query<Codegen.CreateRoleMutation, Codegen.CreateRoleMutationVariables>(
+                CREATE_ROLE,
+                {
+                    input: {
+                        description: 'read default channel catalog',
+                        code: 'read default channel catalog',
+                        channelIds: ['T_1'],
+                        permissions: [Permission.ReadCatalog],
+                    },
                 },
-            });
+            );
         }, 'You are not currently authorized to perform this action'),
     );
 
     it('can create role on channel for which admin has CreateAdministrator permission', async () => {
-        const { createRole } = await adminClient.query<CreateRole.Mutation, CreateRole.Variables>(
-            CREATE_ROLE,
-            {
-                input: {
-                    description: 'read second channel catalog',
-                    code: 'read-second-channel-catalog',
-                    channelIds: ['T_2'],
-                    permissions: [Permission.ReadCatalog],
-                },
+        const { createRole } = await adminClient.query<
+            Codegen.CreateRoleMutation,
+            Codegen.CreateRoleMutationVariables
+        >(CREATE_ROLE, {
+            input: {
+                description: 'read second channel catalog',
+                code: 'read-second-channel-catalog',
+                channelIds: ['T_2'],
+                permissions: [Permission.ReadCatalog],
             },
-        );
+        });
 
         expect(createRole.channels).toEqual([
             {
@@ -250,16 +257,17 @@ describe('Channels', () => {
     });
 
     it('createRole with no channelId implicitly uses active channel', async () => {
-        const { createRole } = await adminClient.query<CreateRole.Mutation, CreateRole.Variables>(
-            CREATE_ROLE,
-            {
-                input: {
-                    description: 'update second channel catalog',
-                    code: 'update-second-channel-catalog',
-                    permissions: [Permission.UpdateCatalog],
-                },
+        await adminClient.asSuperAdmin();
+        const { createRole } = await adminClient.query<
+            Codegen.CreateRoleMutation,
+            Codegen.CreateRoleMutationVariables
+        >(CREATE_ROLE, {
+            input: {
+                description: 'update second channel catalog',
+                code: 'update-second-channel-catalog',
+                permissions: [Permission.UpdateCatalog],
             },
-        );
+        });
 
         expect(createRole.channels).toEqual([
             {
@@ -273,10 +281,10 @@ describe('Channels', () => {
     describe('setting defaultLanguage', () => {
         it('returns error result if languageCode not in availableLanguages', async () => {
             await adminClient.asSuperAdmin();
-            await adminClient.setChannelToken(E2E_DEFAULT_CHANNEL_TOKEN);
+            adminClient.setChannelToken(E2E_DEFAULT_CHANNEL_TOKEN);
             const { updateChannel } = await adminClient.query<
-                UpdateChannel.Mutation,
-                UpdateChannel.Variables
+                Codegen.UpdateChannelMutation,
+                Codegen.UpdateChannelMutationVariables
             >(UPDATE_CHANNEL, {
                 input: {
                     id: 'T_1',
@@ -294,26 +302,26 @@ describe('Channels', () => {
 
         it('allows setting to an available language', async () => {
             await adminClient.asSuperAdmin();
-            await adminClient.setChannelToken(E2E_DEFAULT_CHANNEL_TOKEN);
-            await adminClient.query<UpdateGlobalLanguages.Mutation, UpdateGlobalLanguages.Variables>(
-                UPDATE_GLOBAL_LANGUAGES,
-                {
-                    input: {
-                        availableLanguages: [LanguageCode.en, LanguageCode.zh],
-                    },
+            adminClient.setChannelToken(E2E_DEFAULT_CHANNEL_TOKEN);
+            await adminClient.query<
+                Codegen.UpdateGlobalLanguagesMutation,
+                Codegen.UpdateGlobalLanguagesMutationVariables
+            >(UPDATE_GLOBAL_LANGUAGES, {
+                input: {
+                    availableLanguages: [LanguageCode.en, LanguageCode.zh],
                 },
-            );
+            });
 
             const { updateChannel } = await adminClient.query<
-                UpdateChannel.Mutation,
-                UpdateChannel.Variables
+                Codegen.UpdateChannelMutation,
+                Codegen.UpdateChannelMutationVariables
             >(UPDATE_CHANNEL, {
                 input: {
                     id: 'T_1',
                     defaultLanguageCode: LanguageCode.zh,
                 },
             });
-
+            channelGuard.assertSuccess(updateChannel);
             expect(updateChannel.defaultLanguageCode).toBe(LanguageCode.zh);
         });
     });
@@ -321,11 +329,11 @@ describe('Channels', () => {
     it('deleteChannel', async () => {
         const PROD_ID = 'T_1';
         await adminClient.asSuperAdmin();
-        await adminClient.setChannelToken(E2E_DEFAULT_CHANNEL_TOKEN);
+        adminClient.setChannelToken(E2E_DEFAULT_CHANNEL_TOKEN);
 
         const { assignProductsToChannel } = await adminClient.query<
-            AssignProductsToChannel.Mutation,
-            AssignProductsToChannel.Variables
+            Codegen.AssignProductsToChannelMutation,
+            Codegen.AssignProductsToChannelMutationVariables
         >(ASSIGN_PRODUCT_TO_CHANNEL, {
             input: {
                 channelId: 'T_2',
@@ -338,37 +346,27 @@ describe('Channels', () => {
         shopClient.setChannelToken(SECOND_CHANNEL_TOKEN);
         await shopClient.query(GET_ACTIVE_ORDER);
 
-        const { deleteChannel } = await adminClient.query<DeleteChannel.Mutation, DeleteChannel.Variables>(
-            DELETE_CHANNEL,
-            {
-                id: 'T_2',
-            },
-        );
+        const { deleteChannel } = await adminClient.query<
+            Codegen.DeleteChannelMutation,
+            Codegen.DeleteChannelMutationVariables
+        >(DELETE_CHANNEL, {
+            id: 'T_2',
+        });
 
         expect(deleteChannel.result).toBe(DeletionResult.DELETED);
 
-        const { channels } = await adminClient.query<GetChannels.Query>(GET_CHANNELS);
-        expect(channels.map(c => c.id).sort()).toEqual(['T_1']);
+        const { channels } = await adminClient.query<Codegen.GetChannelsQuery>(GET_CHANNELS);
+        expect(channels.items.map(c => c.id).sort()).toEqual(['T_1']);
 
         const { product } = await adminClient.query<
-            GetProductWithVariants.Query,
-            GetProductWithVariants.Variables
+            Codegen.GetProductWithVariantsQuery,
+            Codegen.GetProductWithVariantsQueryVariables
         >(GET_PRODUCT_WITH_VARIANTS, {
             id: PROD_ID,
         });
         expect(product!.channels.map(c => c.id)).toEqual(['T_1']);
     });
 });
-
-const GET_CHANNELS = gql`
-    query GetChannels {
-        channels {
-            id
-            code
-            token
-        }
-    }
-`;
 
 const DELETE_CHANNEL = gql`
     mutation DeleteChannel($id: ID!) {

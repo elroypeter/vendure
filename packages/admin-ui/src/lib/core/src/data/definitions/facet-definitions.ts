@@ -70,6 +70,15 @@ export const DELETE_FACET = gql`
     }
 `;
 
+export const DELETE_FACETS = gql`
+    mutation DeleteFacets($ids: [ID!]!, $force: Boolean) {
+        deleteFacets(ids: $ids, force: $force) {
+            result
+            message
+        }
+    }
+`;
+
 export const CREATE_FACET_VALUES = gql`
     mutation CreateFacetValues($input: [CreateFacetValueInput!]!) {
         createFacetValues(input: $input) {
@@ -97,23 +106,38 @@ export const DELETE_FACET_VALUES = gql`
     }
 `;
 
-export const GET_FACET_LIST = gql`
-    query GetFacetList($options: FacetListOptions) {
-        facets(options: $options) {
+export const GET_FACET_VALUE_LIST = gql`
+    query GetFacetValueList($options: FacetValueListOptions) {
+        facetValues(options: $options) {
             items {
-                ...FacetWithValues
+                ...FacetValue
             }
             totalItems
         }
     }
-    ${FACET_WITH_VALUES_FRAGMENT}
+    ${FACET_VALUE_FRAGMENT}
 `;
 
-export const GET_FACET_WITH_VALUES = gql`
-    query GetFacetWithValues($id: ID!) {
-        facet(id: $id) {
-            ...FacetWithValues
+export const ASSIGN_FACETS_TO_CHANNEL = gql`
+    mutation AssignFacetsToChannel($input: AssignFacetsToChannelInput!) {
+        assignFacetsToChannel(input: $input) {
+            id
         }
     }
-    ${FACET_WITH_VALUES_FRAGMENT}
+`;
+
+export const REMOVE_FACETS_FROM_CHANNEL = gql`
+    mutation RemoveFacetsFromChannel($input: RemoveFacetsFromChannelInput!) {
+        removeFacetsFromChannel(input: $input) {
+            ... on Facet {
+                id
+            }
+            ... on FacetInUseError {
+                errorCode
+                message
+                variantCount
+                productCount
+            }
+        }
+    }
 `;

@@ -4,9 +4,10 @@ import { ID, Type } from '@vendure/common/lib/shared-types';
 import { unique } from '@vendure/common/lib/unique';
 import {
     Brackets,
-    FindConditions,
     FindManyOptions,
     FindOneOptions,
+    FindOptionsWhere,
+    In,
     Repository,
     SelectQueryBuilder,
 } from 'typeorm';
@@ -19,14 +20,13 @@ import { RequestContext } from '../../../api/common/request-context';
 import { UserInputError } from '../../../common/error/errors';
 import { ListQueryOptions, NullOptionals, SortParameter } from '../../../common/types/common-types';
 import { ConfigService } from '../../../config/config.service';
-import { CustomFields } from '../../../config/index';
+import { CustomFields } from '../../../config/custom-field/custom-field-types';
 import { Logger } from '../../../config/logger/vendure-logger';
 import { TransactionalConnection } from '../../../connection/transactional-connection';
 import { VendureEntity } from '../../../entity/base/base.entity';
 
 import { getColumnMetadata, getEntityAlias } from './connection-utils';
 import { getCalculatedColumns } from './get-calculated-columns';
-import { parseChannelParam } from './parse-channel-param';
 import { parseFilterParams } from './parse-filter-params';
 import { parseSortParams } from './parse-sort-params';
 
@@ -40,7 +40,7 @@ import { parseSortParams } from './parse-sort-params';
 export type ExtendedListQueryOptions<T extends VendureEntity> = {
     relations?: string[];
     channelId?: ID;
-    where?: FindConditions<T>;
+    where?: FindOptionsWhere<T>;
     orderBy?: FindOneOptions<T>['order'];
     /**
      * @description
@@ -90,17 +90,38 @@ export type ExtendedListQueryOptions<T extends VendureEntity> = {
      *   customPropertyMap: {
      *     // Tell TypeORM how to map that custom
      *     // sort/filter field to the property on a
-     *     // related entity. Note that the `customer`
-     *     // part needs to match the *table name* of the
-     *     // related entity. So, e.g. if you are mapping to
-     *     // a `FacetValue` relation's `id` property, the value
-     *     // would be `facet_value.id`.
+     *     // related entity.
      *     customerLastName: 'customer.lastName',
      *   },
      * };
      * ```
+     * We can now use the `customerLastName` property to filter or sort
+     * on the list query:
+     *
+     * @example
+     * ```GraphQL
+     * query {
+     *   myOrderQuery(options: {
+     *     filter: {
+     *       customerLastName: { contains: "sm" }
+     *     }
+     *   }) {
+     *     # ...
+     *   }
+     * }
+     * ```
      */
     customPropertyMap?: { [name: string]: string };
+    /**
+     * @description
+     * When set to `true`, the configured `shopListQueryLimit` and `adminListQueryLimit` values will be ignored,
+     * allowing unlimited results to be returned. Use caution when exposing an unlimited list query to the public,
+     * as it could become a vector for a denial of service attack if an attacker requests a very large list.
+     *
+     * @since 2.0.2
+     * @default false
+     */
+    ignoreQueryLimits?: boolean;
 };
 
 /**
@@ -195,21 +216,25 @@ export class ListQueryBuilder implements OnApplicationBootstrap {
     ): SelectQueryBuilder<T> {
         const apiType = extendedOptions.ctx?.apiType ?? 'shop';
         const rawConnection = this.connection.rawConnection;
-        const { take, skip } = this.parseTakeSkipParams(apiType, options);
+        const { take, skip } = this.parseTakeSkipParams(apiType, options, extendedOptions.ignoreQueryLimits);
 
         const repo = extendedOptions.ctx
             ? this.connection.getRepository(extendedOptions.ctx, entity)
             : this.connection.rawConnection.getRepository(entity);
-
-        const qb = repo.createQueryBuilder(extendedOptions.entityAlias || entity.name.toLowerCase());
+        const alias = extendedOptions.entityAlias || entity.name.toLowerCase();
         const minimumRequiredRelations = this.getMinimumRequiredRelations(repo, options, extendedOptions);
-        FindOptionsUtils.applyFindManyOptionsOrConditionsToQueryBuilder(qb, {
+        const qb = repo.createQueryBuilder(alias).setFindOptions({
             relations: minimumRequiredRelations,
             take,
             skip,
             where: extendedOptions.where || {},
-        } as FindManyOptions<T>);
-        // tslint:disable-next-line:no-non-null-assertion
+            // We would like to be able to use this feature
+            // rather than our custom `optimizeGetManyAndCountMethod()` implementation,
+            // but at this time (TypeORM 0.3.12) it throws an error in the case of
+            // a Collection that joins its parent entity.
+            // relationLoadStrategy: 'query',
+        });
+        // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
         FindOptionsUtils.joinEagerRelations(qb, qb.alias, qb.expressionMap.mainAlias!.metadata);
 
         // join the tables required by calculated columns
@@ -221,13 +246,7 @@ export class ListQueryBuilder implements OnApplicationBootstrap {
         }
         const customFieldsForType = this.configService.customFields[entity.name as keyof CustomFields];
         const sortParams = Object.assign({}, options.sort, extendedOptions.orderBy);
-        this.applyTranslationConditions(
-            qb,
-            entity,
-            sortParams,
-            extendedOptions.ctx,
-            extendedOptions.entityAlias,
-        );
+        this.applyTranslationConditions(qb, entity, sortParams, extendedOptions.ctx, alias);
         const sort = parseSortParams(
             rawConnection,
             entity,
@@ -262,15 +281,9 @@ export class ListQueryBuilder implements OnApplicationBootstrap {
         }
 
         if (extendedOptions.channelId) {
-            const channelFilter = parseChannelParam(
-                rawConnection,
-                entity,
-                extendedOptions.channelId,
-                extendedOptions.entityAlias,
-            );
-            if (channelFilter) {
-                qb.andWhere(channelFilter.clause, channelFilter.parameters);
-            }
+            qb.leftJoin(`${alias}.channels`, 'lqb__channel').andWhere('lqb__channel.id = :channelId', {
+                channelId: extendedOptions.channelId,
+            });
         }
 
         qb.orderBy(sort);
@@ -282,9 +295,14 @@ export class ListQueryBuilder implements OnApplicationBootstrap {
     private parseTakeSkipParams(
         apiType: ApiType,
         options: ListQueryOptions<any>,
+        ignoreQueryLimits = false,
     ): { take: number; skip: number } {
         const { shopListQueryLimit, adminListQueryLimit } = this.configService.apiOptions;
-        const takeLimit = apiType === 'admin' ? adminListQueryLimit : shopListQueryLimit;
+        const takeLimit = ignoreQueryLimits
+            ? Number.MAX_SAFE_INTEGER
+            : apiType === 'admin'
+            ? adminListQueryLimit
+            : shopListQueryLimit;
         if (options.take && options.take > takeLimit) {
             throw new UserInputError('error.list-query-limit-exceeded', { limit: takeLimit });
         }
@@ -322,14 +340,41 @@ export class ListQueryBuilder implements OnApplicationBootstrap {
                     // to join the associated relations.
                     continue;
                 }
-                const tableNameLower = path.split('.')[0];
-                const entityMetadata = repository.manager.connection.entityMetadatas.find(
-                    em => em.tableNameWithoutPrefix === tableNameLower,
-                );
-                if (entityMetadata) {
-                    const relationMetadata = metadata.relations.find(r => r.type === entityMetadata.target);
+
+                // TODO: Delete for v2
+                // This is a work-around to allow the use of the legacy table-name-based
+                // customPropertyMap syntax
+                let relationPathYieldedMatch = false;
+
+                const relationPath = path.split('.').slice(0, -1);
+                let targetMetadata = metadata;
+                const recontructedPath = [];
+                for (const relationPathPart of relationPath) {
+                    const relationMetadata = targetMetadata.findRelationWithPropertyPath(relationPathPart);
                     if (relationMetadata) {
-                        requiredRelations.push(relationMetadata.propertyName);
+                        recontructedPath.push(relationMetadata.propertyName);
+                        requiredRelations.push(recontructedPath.join('.'));
+                        targetMetadata = relationMetadata.inverseEntityMetadata;
+                        relationPathYieldedMatch = true;
+                    }
+                }
+
+                if (!relationPathYieldedMatch) {
+                    // TODO: Delete this in v2.
+                    // Legacy behaviour that uses the table name to reference relations.
+                    // This causes a bunch of issues and is also a bad, unintuitive way to
+                    // reference relations. See https://github.com/vendure-ecommerce/vendure/issues/1774
+                    const tableNameLower = path.split('.')[0];
+                    const entityMetadata = repository.manager.connection.entityMetadatas.find(
+                        em => em.tableNameWithoutPrefix === tableNameLower,
+                    );
+                    if (entityMetadata) {
+                        const relationMetadata = metadata.relations.find(
+                            r => r.type === entityMetadata.target,
+                        );
+                        if (relationMetadata) {
+                            requiredRelations.push(relationMetadata.propertyName);
+                        }
                     }
                 }
             }
@@ -406,8 +451,21 @@ export class ListQueryBuilder implements OnApplicationBootstrap {
         const entityMap = new Map(entities.map(e => [e.id, e]));
         const entitiesIds = entities.map(({ id }) => id);
 
-        const splitRelations = relations.map(r => r.split('.'));
+        const splitRelations = relations
+            .map(r => r.split('.'))
+            .filter(path => {
+                // There is an issue in TypeORM currently which causes
+                // an error when trying to join nested relations inside
+                // customFields. See https://github.com/vendure-ecommerce/vendure/issues/1664
+                // The work-around is to omit them and rely on the GraphQL resolver
+                // layer to handle.
+                if (path[0] === 'customFields' && 2 < path.length) {
+                    return false;
+                }
+                return true;
+            });
         const groupedRelationsMap = new Map<string, string[]>();
+
         for (const relationParts of splitRelations) {
             const group = groupedRelationsMap.get(relationParts[0]);
             if (group) {
@@ -428,11 +486,12 @@ export class ListQueryBuilder implements OnApplicationBootstrap {
         const entitiesIdsWithRelations = await Promise.all(
             Array.from(groupedRelationsMap.values())?.map(relationPaths => {
                 return repo
-                    .findByIds(entitiesIds, {
+                    .find({
+                        where: { id: In(entitiesIds) },
                         select: ['id'],
                         relations: relationPaths,
-                        loadEagerRelations: false,
-                    })
+                        loadEagerRelations: true,
+                    } as FindManyOptions<T>)
                     .then(results =>
                         results.map(r => ({ relation: relationPaths[0] as keyof T, entity: r })),
                     );
@@ -441,10 +500,33 @@ export class ListQueryBuilder implements OnApplicationBootstrap {
         for (const entry of entitiesIdsWithRelations) {
             const finalEntity = entityMap.get(entry.entity.id);
             if (finalEntity) {
-                finalEntity[entry.relation] = entry.entity[entry.relation];
+                this.assignDeep(entry.relation, entry.entity, finalEntity);
             }
         }
         return Array.from(entityMap.values());
+    }
+
+    private assignDeep<T>(relation: string | keyof T, source: T, target: T) {
+        if (typeof relation === 'string') {
+            const parts = relation.split('.');
+            let resolvedTarget: any = target;
+            let resolvedSource: any = source;
+
+            for (const part of parts.slice(0, parts.length - 1)) {
+                if (!resolvedTarget[part]) {
+                    resolvedTarget[part] = {};
+                }
+                if (!resolvedSource[part]) {
+                    return;
+                }
+                resolvedTarget = resolvedTarget[part];
+                resolvedSource = resolvedSource[part];
+            }
+
+            resolvedTarget[parts[parts.length - 1]] = resolvedSource[parts[parts.length - 1]];
+        } else {
+            target[relation] = source[relation];
+        }
     }
 
     /**
@@ -465,9 +547,12 @@ export class ListQueryBuilder implements OnApplicationBootstrap {
             const parts = customPropertyMap[property].split('.');
             const entityPart = 2 <= parts.length ? parts[parts.length - 2] : qb.alias;
             const columnPart = parts[parts.length - 1];
-            const relationAlias = qb.expressionMap.aliases.find(
-                a => a.metadata.tableNameWithoutPrefix === entityPart,
-            );
+
+            const relationMetadata =
+                qb.expressionMap.mainAlias?.metadata.findRelationWithPropertyPath(entityPart);
+            const relationAlias =
+                qb.expressionMap.aliases.find(a => a.metadata.tableNameWithoutPrefix === entityPart) ??
+                qb.expressionMap.joinAttributes.find(ja => ja.relationCache === relationMetadata)?.alias;
             if (relationAlias) {
                 customPropertyMap[property] = `${relationAlias.name}.${columnPart}`;
             } else {

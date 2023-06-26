@@ -58,7 +58,7 @@ export class KeycloakAuthenticationStrategy implements AuthenticationStrategy<Ke
                 })
                 .toPromise();
             userInfo = response.data;
-        } catch (e) {
+        } catch (e: any) {
             Logger.error(e);
             return false;
         }
@@ -66,7 +66,11 @@ export class KeycloakAuthenticationStrategy implements AuthenticationStrategy<Ke
         if (!userInfo) {
             return false;
         }
-        const user = await this.externalAuthenticationService.findAdministratorUser(this.name, userInfo.sub);
+        const user = await this.externalAuthenticationService.findAdministratorUser(
+            ctx,
+            this.name,
+            userInfo.sub,
+        );
         if (user) {
             return user;
         }

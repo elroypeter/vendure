@@ -17,6 +17,7 @@ import {
     VerificationTokenExpiredError,
     VerificationTokenInvalidError,
 } from '../../common/error/generated-graphql-shop-errors';
+import { normalizeEmailAddress } from '../../common/index';
 import { ConfigService } from '../../config/config.service';
 import { TransactionalConnection } from '../../connection/transactional-connection';
 import { NativeAuthenticationMethod } from '../../entity/authentication-method/native-authentication-method.entity';
@@ -43,19 +44,41 @@ export class UserService {
     ) {}
 
     async getUserById(ctx: RequestContext, userId: ID): Promise<User | undefined> {
-        return this.connection.getRepository(ctx, User).findOne(userId, {
-            relations: ['roles', 'roles.channels', 'authenticationMethods'],
-        });
+        return this.connection
+            .getRepository(ctx, User)
+            .findOne({
+                where: { id: userId },
+                relations: {
+                    roles: {
+                        channels: true,
+                    },
+                    authenticationMethods: true,
+                },
+            })
+            .then(result => result ?? undefined);
     }
 
-    async getUserByEmailAddress(ctx: RequestContext, emailAddress: string): Promise<User | undefined> {
-        return this.connection.getRepository(ctx, User).findOne({
-            where: {
-                identifier: emailAddress,
-                deletedAt: null,
-            },
-            relations: ['roles', 'roles.channels', 'authenticationMethods'],
-        });
+    async getUserByEmailAddress(
+        ctx: RequestContext,
+        emailAddress: string,
+        userType?: 'administrator' | 'customer',
+    ): Promise<User | undefined> {
+        const entity = userType ?? (ctx.apiType === 'admin' ? 'administrator' : 'customer');
+        const table = `${this.configService.dbConnectionOptions.entityPrefix ?? ''}${entity}`;
+
+        return this.connection
+            .getRepository(ctx, User)
+            .createQueryBuilder('user')
+            .innerJoin(table, table, `${table}.userId = user.id`)
+            .leftJoinAndSelect('user.roles', 'roles')
+            .leftJoinAndSelect('roles.channels', 'channels')
+            .leftJoinAndSelect('user.authenticationMethods', 'authenticationMethods')
+            .where('LOWER(user.identifier) = :identifier', {
+                identifier: normalizeEmailAddress(emailAddress),
+            })
+            .andWhere('user.deletedAt IS NULL')
+            .getOne()
+            .then(result => result ?? undefined);
     }
 
     /**
@@ -68,7 +91,7 @@ export class UserService {
         password?: string,
     ): Promise<User | PasswordValidationError> {
         const user = new User();
-        user.identifier = identifier;
+        user.identifier = normalizeEmailAddress(identifier);
         const customerRole = await this.roleService.getCustomerRole(ctx);
         user.roles = [customerRole];
         const addNativeAuthResult = await this.addNativeAuthenticationMethod(ctx, user, identifier, password);
@@ -118,7 +141,7 @@ export class UserService {
         } else {
             authenticationMethod.passwordHash = '';
         }
-        authenticationMethod.identifier = identifier;
+        authenticationMethod.identifier = normalizeEmailAddress(identifier);
         authenticationMethod.user = user;
         await this.connection.getRepository(ctx, NativeAuthenticationMethod).save(authenticationMethod);
         user.authenticationMethods = [...(user.authenticationMethods ?? []), authenticationMethod];
@@ -131,14 +154,14 @@ export class UserService {
      */
     async createAdminUser(ctx: RequestContext, identifier: string, password: string): Promise<User> {
         const user = new User({
-            identifier,
+            identifier: normalizeEmailAddress(identifier),
             verified: true,
         });
         const authenticationMethod = await this.connection
             .getRepository(ctx, NativeAuthenticationMethod)
             .save(
                 new NativeAuthenticationMethod({
-                    identifier,
+                    identifier: normalizeEmailAddress(identifier),
                     passwordHash: await this.passwordCipher.hash(password),
                 }),
             );
@@ -179,8 +202,9 @@ export class UserService {
         const user = await this.connection
             .getRepository(ctx, User)
             .createQueryBuilder('user')
-            .leftJoinAndSelect('user.authenticationMethods', 'authenticationMethod')
-            .addSelect('authenticationMethod.passwordHash')
+            .leftJoinAndSelect('user.authenticationMethods', 'aums')
+            .leftJoin('user.authenticationMethods', 'authenticationMethod')
+            .addSelect('aums.passwordHash')
             .where('authenticationMethod.verificationToken = :verificationToken', { verificationToken })
             .getOne();
         if (user) {
@@ -222,7 +246,10 @@ export class UserService {
         if (!user) {
             return;
         }
-        const nativeAuthMethod = user.getNativeAuthenticationMethod();
+        const nativeAuthMethod = user.getNativeAuthenticationMethod(false);
+        if (!nativeAuthMethod) {
+            return undefined;
+        }
         nativeAuthMethod.passwordResetToken = this.verificationTokenGenerator.generateVerificationToken();
         await this.connection.getRepository(ctx, NativeAuthenticationMethod).save(nativeAuthMethod);
         return user;
@@ -245,7 +272,8 @@ export class UserService {
         const user = await this.connection
             .getRepository(ctx, User)
             .createQueryBuilder('user')
-            .leftJoinAndSelect('user.authenticationMethods', 'authenticationMethod')
+            .leftJoinAndSelect('user.authenticationMethods', 'aums')
+            .leftJoin('user.authenticationMethods', 'authenticationMethod')
             .where('authenticationMethod.passwordResetToken = :passwordResetToken', { passwordResetToken })
             .getOne();
         if (!user) {
@@ -330,7 +358,8 @@ export class UserService {
         const user = await this.connection
             .getRepository(ctx, User)
             .createQueryBuilder('user')
-            .leftJoinAndSelect('user.authenticationMethods', 'authenticationMethod')
+            .leftJoinAndSelect('user.authenticationMethods', 'aums')
+            .leftJoin('user.authenticationMethods', 'authenticationMethod')
             .where('authenticationMethod.identifierChangeToken = :identifierChangeToken', {
                 identifierChangeToken: token,
             })
@@ -386,7 +415,7 @@ export class UserService {
         const nativeAuthMethod = user.getNativeAuthenticationMethod();
         const matches = await this.passwordCipher.check(currentPassword, nativeAuthMethod.passwordHash);
         if (!matches) {
-            return new InvalidCredentialsError('');
+            return new InvalidCredentialsError({ authenticationError: '' });
         }
         nativeAuthMethod.passwordHash = await this.passwordCipher.hash(newPassword);
         await this.connection
@@ -406,7 +435,7 @@ export class UserService {
                 typeof passwordValidationResult === 'string'
                     ? passwordValidationResult
                     : 'Password is invalid';
-            return new PasswordValidationError(message);
+            return new PasswordValidationError({ validationErrorMessage: message });
         } else {
             return true;
         }

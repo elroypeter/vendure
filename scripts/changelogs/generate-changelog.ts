@@ -2,7 +2,7 @@ import fs from 'fs-extra';
 import path from 'path';
 
 import { addStream } from './add-stream';
-// tslint:disable-next-line:no-var-requires
+// eslint-disable-next-line @typescript-eslint/no-var-requires
 const conventionalChangelogCore = require('conventional-changelog-core');
 
 let changelogFileName = 'CHANGELOG.md';
@@ -33,6 +33,7 @@ const VALID_SCOPES: string[] = [
     'payments-plugin',
     'testing',
     'ui-devkit',
+    'harden-plugin',
 ];
 
 const mainTemplate = fs.readFileSync(path.join(__dirname, 'template.hbs'), 'utf-8');

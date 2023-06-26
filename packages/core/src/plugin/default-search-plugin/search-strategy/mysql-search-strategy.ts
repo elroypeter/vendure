@@ -116,7 +116,7 @@ export class MysqlSearchStrategy implements SearchStrategy {
             .limit(take)
             .offset(skip)
             .getRawMany()
-            .then(res => res.map(r => mapToSearchResult(r, ctx.channel.currencyCode)));
+            .then(res => res.map(r => mapToSearchResult(r, ctx.channel.defaultCurrencyCode)));
     }
 
     async getTotalCount(ctx: RequestContext, input: SearchInput, enabledOnly: boolean): Promise<number> {
@@ -149,13 +149,18 @@ export class MysqlSearchStrategy implements SearchStrategy {
             input;
 
         if (term && term.length > this.minTermLength) {
-            const safeTerm = term.replace(/"/g, '');
+            const safeTerm = term
+                .replace(/"/g, '')
+                .replace(/@/g, ' ')
+                .trim()
+                .replace(/[+\-*~<>]/g, ' ')
+                .trim();
             const termScoreQuery = this.connection
                 .getRepository(ctx, SearchIndexItem)
                 .createQueryBuilder('si_inner')
                 .select('si_inner.productId', 'inner_productId')
                 .addSelect('si_inner.productVariantId', 'inner_productVariantId')
-                .addSelect(`IF (si_inner.sku LIKE :like_term, 10, 0)`, 'sku_score')
+                .addSelect('IF (si_inner.sku LIKE :like_term, 10, 0)', 'sku_score')
                 .addSelect(
                     `(SELECT sku_score) +
                      MATCH (si_inner.productName) AGAINST (:term IN BOOLEAN MODE) * 2 +
@@ -238,10 +243,10 @@ export class MysqlSearchStrategy implements SearchStrategy {
             );
         }
         if (collectionId) {
-            qb.andWhere(`FIND_IN_SET (:collectionId, si.collectionIds)`, { collectionId });
+            qb.andWhere('FIND_IN_SET (:collectionId, si.collectionIds)', { collectionId });
         }
         if (collectionSlug) {
-            qb.andWhere(`FIND_IN_SET (:collectionSlug, si.collectionSlugs)`, { collectionSlug });
+            qb.andWhere('FIND_IN_SET (:collectionSlug, si.collectionSlugs)', { collectionSlug });
         }
 
         applyLanguageConstraints(qb, ctx.languageCode, ctx.channel.defaultLanguageCode);

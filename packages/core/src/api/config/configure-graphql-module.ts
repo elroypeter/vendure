@@ -1,27 +1,26 @@
+import { ApolloDriver } from '@nestjs/apollo';
 import { DynamicModule } from '@nestjs/common';
-import { ModuleRef } from '@nestjs/core';
 import { GqlModuleOptions, GraphQLModule, GraphQLTypesLoader } from '@nestjs/graphql';
 import { notNullOrUndefined } from '@vendure/common/lib/shared-utils';
+import { ApolloServerPluginLandingPageGraphQLPlayground } from 'apollo-server-core';
 import { buildSchema, extendSchema, GraphQLSchema, printSchema, ValidationContext } from 'graphql';
 import path from 'path';
 
 import { ConfigModule } from '../../config/config.module';
 import { ConfigService } from '../../config/config.service';
-import { TransactionalConnection } from '../../connection/transactional-connection';
 import { I18nModule } from '../../i18n/i18n.module';
 import { I18nService } from '../../i18n/i18n.service';
 import { getDynamicGraphQlModulesForPlugins } from '../../plugin/dynamic-plugin-api.module';
 import { getPluginAPIExtensions } from '../../plugin/plugin-metadata';
-import { CustomFieldRelationService } from '../../service/helpers/custom-field-relation/custom-field-relation.service';
 import { ServiceModule } from '../../service/service.module';
-import { ProductVariantService } from '../../service/services/product-variant.service';
-import { ApiSharedModule } from '../api-internal-modules';
+import { ApiSharedModule, ShopApiModule } from '../api-internal-modules';
 import { CustomFieldRelationResolverService } from '../common/custom-field-relation-resolver.service';
 import { IdCodecService } from '../common/id-codec.service';
 import { AssetInterceptorPlugin } from '../middleware/asset-interceptor-plugin';
 import { IdCodecPlugin } from '../middleware/id-codec-plugin';
 import { TranslateErrorsPlugin } from '../middleware/translate-errors-plugin';
 
+import { generateActiveOrderTypes } from './generate-active-order-types';
 import { generateAuthenticationTypes } from './generate-auth-types';
 import { generateErrorCodeEnum } from './generate-error-code-enum';
 import { generateListOptions } from './generate-list-options';
@@ -44,7 +43,7 @@ export interface GraphQLApiOptions {
     apiPath: string;
     debug: boolean;
     playground: boolean | any;
-    // tslint:disable-next-line:ban-types
+    // eslint-disable-next-line @typescript-eslint/ban-types
     resolverModule: Function;
     validationRules: Array<(context: ValidationContext) => any>;
 }
@@ -56,6 +55,7 @@ export function configureGraphQLModule(
     getOptions: (configService: ConfigService) => GraphQLApiOptions,
 ): DynamicModule {
     return GraphQLModule.forRootAsync({
+        driver: ApolloDriver,
         useFactory: (
             configService: ConfigService,
             i18nService: I18nService,
@@ -92,7 +92,7 @@ async function createGraphQLOptions(
     options: GraphQLApiOptions,
 ): Promise<GqlModuleOptions> {
     const builtSchema = await buildSchemaForApi(options.apiType);
-    const resolvers = generateResolvers(
+    const resolvers = await generateResolvers(
         configService,
         customFieldRelationResolverService,
         options.apiType,
@@ -101,13 +101,13 @@ async function createGraphQLOptions(
     return {
         path: '/' + options.apiPath,
         typeDefs: printSchema(builtSchema),
-        include: [options.resolverModule, ...getDynamicGraphQlModulesForPlugins(options.apiType)],
+        include: [options.resolverModule],
         fieldResolverEnhancers: ['guards'],
         resolvers,
         // We no longer rely on the upload facility bundled with Apollo Server, and instead
         // manually configure the graphql-upload package. See https://github.com/vendure-ecommerce/vendure/issues/396
         uploads: false,
-        playground: options.playground || false,
+        playground: false,
         debug: options.debug || false,
         context: (req: any) => req,
         // This is handled by the Express cors plugin
@@ -116,6 +116,7 @@ async function createGraphQLOptions(
             new IdCodecPlugin(idCodecService),
             new TranslateErrorsPlugin(i18nService),
             new AssetInterceptorPlugin(configService),
+            ApolloServerPluginLandingPageGraphQLPlayground(),
             ...configService.apiOptions.apolloServerPlugins,
         ],
         validationRules: options.validationRules,
@@ -158,6 +159,7 @@ async function createGraphQLOptions(
         }
         if (apiType === 'shop') {
             schema = addRegisterCustomerCustomFieldsInput(schema, customFields.Customer || []);
+            schema = generateActiveOrderTypes(schema, configService.orderOptions.activeOrderStrategy);
         }
         schema = generatePermissionEnum(schema, configService.authOptions.customPermissions);
 

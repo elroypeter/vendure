@@ -35,7 +35,7 @@ Here's an explanation of each column:
 * `name`: The name of the product. Rows with an empty "name" are interpreted as variants of the preceeding product row.
 * `slug`: The product's slug. Can be omitted, in which case will be generated from the name.
 * `description`: The product description.
-* `assets`: One or more asset file names separated by the pipe (`|`) character. The files can be located on the local file system, in which case the path is interpreted as being relative to the [`importAssetsDir`]({{< relref "/docs/typescript-api/import-export/import-export-options" >}}#importassetsdir) as defined in the VendureConfig. Files can also be urls which will be fetched from a remote http/https url. If you need more control over how assets are imported, you can implement a custom [AssetImportStrategy]({{< relref "asset-import-strategy" >}}). The first asset will be set as the featuredAsset.
+* `assets`: One or more asset file names separated by the pipe (`|`) character. The files can be located on the local file system, in which case the path is interpreted as being relative to the [`importAssetsDir`]({{< relref "/typescript-api/import-export/import-export-options" >}}#importassetsdir) as defined in the VendureConfig. Files can also be urls which will be fetched from a remote http/https url. If you need more control over how assets are imported, you can implement a custom [AssetImportStrategy]({{< relref "asset-import-strategy" >}}). The first asset will be set as the featuredAsset.
 * `facets`: One or more facets to apply to the product separated by the pipe (`|`) character. A facet has the format `<facet-name>:<facet-value>`.
 * `optionGroups`: OptionGroups define what variants make up the product. Applies only to products with more than one variant. 
 * `optionValues`: For each optionGroup defined, a corresponding value must be specified for each variant. Applies only to products with more than one variant.
@@ -84,7 +84,7 @@ Use of language codes has to be consistent throughout the file. You don't have t
 
 ## Initial Data
 
-As well as product data, other initialization data can be populated using the [`InitialData` object]({{< relref "initial-data" >}}). **This format is intentionally limited**; more advanced requirements (e.g. setting up ShippingMethods that use custom checkers & calculators) should be carried out via scripts which interact with the [Admin GraphQL API]({{< relref "/docs/graphql-api/admin" >}}).
+As well as product data, other initialization data can be populated using the [`InitialData` object]({{< relref "initial-data" >}}). **This format is intentionally limited**; more advanced requirements (e.g. setting up ShippingMethods that use custom checkers & calculators) should be carried out via scripts which interact with the [Admin GraphQL API]({{< relref "/graphql-api/admin" >}}).
 
 ```TypeScript
 import { InitialData, LanguageCode } from '@vendure/core';
@@ -165,8 +165,8 @@ export const initialData: InitialData = {
 * `roles`: Defines which user roles are available.
   * `code`: Role code name.
   * `description`: Role description.
-  * `permissions`: List of permissions to applied to the role.
-* `defaultLanguage`: Sets the language which will be used for all translatable entities created by the initial data e.g. Products, ProductVariants, Collections etc. Should correspond to the language used in your product csv file.
+  * `permissions`: List of permissions to apply to the role.
+* `defaultLanguage`: Sets the language that will be used for all translatable entities created by the initial data e.g. Products, ProductVariants, Collections etc. Should correspond to the language used in your product csv file.
 * `countries`: Defines which countries are available.
   * `name`: The name of the country in the language specified by `defaultLanguage`
   * `code`: A standardized code for the country, e.g. [ISO 3166-1](https://en.wikipedia.org/wiki/List_of_ISO_3166_country_codes)
@@ -174,7 +174,7 @@ export const initialData: InitialData = {
 * `defaultZone`: Sets the default shipping & tax zone for the default Channel. The zone must correspond to a value of `zone` set in the `countries` array. 
 * `taxRates`: For each item, a new [TaxCategory]({{< relref "tax-category" >}}) is created, and then a [TaxRate]({{< relref "tax-rate" >}}) is created for each unique zone defined in the `countries` array. 
 * `shippingMethods`: Allows simple flat-rate [ShippingMethods]({{< relref "shipping-method" >}}) to be defined.
-* `collections`: Allows Collections to be created. Currently, only collections based on facet values can be created (`code: 'facet-value-filter'`). The `assetPaths` and `facetValueNames` value must correspond to a values specified in the products csv file. The name should match the value specified in the product csv file (or can be a normalized - lower-case & hyphenated - version thereof). If there are FacetValues in multiple Facets with the same name, the facet may be specified with a colon delimiter, e.g. `brand:apple`, `flavour: apple`.
+* `collections`: Allows Collections to be created. Currently, only collections based on facet values can be created (`code: 'facet-value-filter'`). The `assetPaths` and `facetValueNames` values must correspond to a value specified in the products csv file. The name should match the value specified in the product csv file (or can be a normalized - lower-case & hyphenated - version thereof). If there are FacetValues in multiple Facets with the same name, the facet may be specified with a colon delimiter, e.g. `brand:apple`, `flavour: apple`.
 
 ## Populating The Server
 
@@ -218,6 +218,8 @@ populate(
   },
 );
 ```
+**Attention:** When removing the `DefaultJobQueuePlugin` from the plugins list as in the code snippet above, one should manually rebuild the search index in order for the newly added products to appear.
+In the Admin UI, this can be done by navigating to the Products page and clicking the gear icon next to the search input.
 
 ### Custom populate scripts
 

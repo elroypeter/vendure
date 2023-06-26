@@ -16,7 +16,7 @@ import {
  * @description
  * Configuration options for the {@link ElasticsearchPlugin}.
  *
- * @docsCategory ElasticsearchPlugin
+ * @docsCategory core plugins/ElasticsearchPlugin
  * @docsPage ElasticsearchOptions
  */
 export interface ElasticsearchOptions {
@@ -165,7 +165,7 @@ export interface ElasticsearchOptions {
      * @description
      * Custom mappings may be defined which will add the defined data to the
      * Elasticsearch index and expose that data via the SearchResult GraphQL type,
-     * adding a new `customMappings` field.
+     * adding a new `customMappings`, `customProductMappings` & `customProductVariantMappings` fields.
      *
      * The `graphQlType` property may be one of `String`, `Int`, `Float`, `Boolean`, `ID` or list
      * versions thereof (`[String!]` etc) and can be appended with a `!` to indicate non-nullable fields.
@@ -175,7 +175,8 @@ export interface ElasticsearchOptions {
      * parsed to the elasticsearch index.
      *
      * This config option defines custom mappings which are accessible when the "groupByProduct"
-     * input options is set to `true`.
+     * input options is set to `true`. In addition, custom variant mappings can be accessed by using
+     * the `customProductVariantMappings` field, which is always available.
      *
      * @example
      * ```TypeScript
@@ -205,6 +206,10 @@ export interface ElasticsearchOptions {
      *         items {
      *             productId
      *             productName
+     *             customProductMappings {
+     *                 variantCount
+     *                 reviewRating
+     *             }
      *             customMappings {
      *                 ...on CustomProductMappings {
      *                     variantCount
@@ -222,7 +227,8 @@ export interface ElasticsearchOptions {
     /**
      * @description
      * This config option defines custom mappings which are accessible when the "groupByProduct"
-     * input options is set to `false`.
+     * input options is set to `false`. In addition, custom product mappings can be accessed by using
+     * the `customProductMappings` field, which is always available.
      *
      * @example
      * ```SDL
@@ -232,6 +238,9 @@ export interface ElasticsearchOptions {
      *         items {
      *             productId
      *             productName
+     *             customProductVariantMappings {
+     *                 weight
+     *             }
      *             customMappings {
      *                 ...on CustomProductVariantMappings {
      *                     weight
@@ -362,7 +371,7 @@ export interface ElasticsearchOptions {
  * @description
  * Configuration options for the internal Elasticsearch query which is generated when performing a search.
  *
- * @docsCategory ElasticsearchPlugin
+ * @docsCategory core plugins/ElasticsearchPlugin
  * @docsPage ElasticsearchOptions
  */
 export interface SearchConfig {
@@ -647,7 +656,7 @@ export interface SearchConfig {
  *
  * Boosting a field acts as a score multiplier for matches against that field.
  *
- * @docsCategory ElasticsearchPlugin
+ * @docsCategory core plugins/ElasticsearchPlugin
  * @docsPage ElasticsearchOptions
  */
 export interface BoostFieldsConfig {

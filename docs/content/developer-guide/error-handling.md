@@ -10,7 +10,7 @@ Errors in Vendure can be divided into two categories:
 * Unexpected errors
 * Expected errors
 
-These two types have different meanings and are handled differently to one another.
+These two types have different meanings and are handled differently from one another.
 
 ## Unexpected Errors
 
@@ -81,7 +81,7 @@ type OrderStateTransitionError implements ErrorResult {
 }
 ```
 
-Operations which may return ErrorResults use a GraphQL `union` as their return type:
+Operations that may return ErrorResults use a GraphQL `union` as their return type:
 
 ```GraphQL
 type Mutation {
@@ -125,4 +125,4 @@ mutation ApplyCoupon($code: String!) {
 
 This ensures that your client code is aware of and handles all the usual error cases.
 
-You can see all the ErrorResult types returned by the Shop API mutations in the [Shop API Mutations docs]({{< relref "/docs/graphql-api/shop/mutations" >}}). 
+You can see all the ErrorResult types returned by the Shop API mutations in the [Shop API Mutations docs]({{< relref "/graphql-api/shop/mutations" >}}). 

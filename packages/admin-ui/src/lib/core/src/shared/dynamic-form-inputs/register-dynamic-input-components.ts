@@ -9,6 +9,7 @@ import {
 } from '../../providers/custom-field-component/custom-field-component.service';
 
 import { BooleanFormInputComponent } from './boolean-form-input/boolean-form-input.component';
+import { HtmlEditorFormInputComponent } from './code-editor-form-input/html-editor-form-input.component';
 import { JsonEditorFormInputComponent } from './code-editor-form-input/json-editor-form-input.component';
 import { CombinationModeFormInputComponent } from './combination-mode-form-input/combination-mode-form-input.component';
 import { CurrencyFormInputComponent } from './currency-form-input/currency-form-input.component';
@@ -40,6 +41,7 @@ export const defaultFormInputs = [
     TextareaFormInputComponent,
     RichTextFormInputComponent,
     JsonEditorFormInputComponent,
+    HtmlEditorFormInputComponent,
     ProductMultiSelectorFormInputComponent,
     CombinationModeFormInputComponent,
 ];
@@ -99,44 +101,6 @@ export function registerFormInputComponent(id: string, component: Type<FormInput
             registry.registerInputComponent(id, component);
         },
         deps: [ComponentRegistryService],
-    };
-}
-
-/**
- * @description
- * **Deprecated** use `registerFormInputComponent()` in combination with the customField `ui` config instead.
- *
- * Registers a custom component to act as the form input control for the given custom field.
- * This should be used in the NgModule `providers` array of your ui extension module.
- *
- * @example
- * ```TypeScript
- * \@NgModule({
- *   imports: [SharedModule],
- *   declarations: [MyCustomFieldControl],
- *   providers: [
- *       registerCustomFieldComponent('Product', 'someCustomField', MyCustomFieldControl),
- *   ],
- * })
- * export class MyUiExtensionModule {}
- * ```
- *
- * @deprecated use `registerFormInputComponent()` in combination with the customField `ui` config instead.
- *
- * @docsCategory custom-input-components
- */
-export function registerCustomFieldComponent(
-    entity: CustomFieldEntityName,
-    fieldName: string,
-    component: Type<CustomFieldControl>,
-): FactoryProvider {
-    return {
-        provide: APP_INITIALIZER,
-        multi: true,
-        useFactory: (customFieldComponentService: CustomFieldComponentService) => () => {
-            customFieldComponentService.registerCustomFieldComponent(entity, fieldName, component);
-        },
-        deps: [CustomFieldComponentService],
     };
 }
 

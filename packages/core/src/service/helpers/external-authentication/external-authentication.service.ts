@@ -36,17 +36,26 @@ export class ExternalAuthenticationService {
      * @description
      * Looks up a User based on their identifier from an external authentication
      * provider, ensuring this User is associated with a Customer account.
+     *
+     * By default, only customers in the currently-active Channel will be checked.
+     * By passing `false` as the `checkCurrentChannelOnly` argument, _all_ channels
+     * will be checked.
      */
     async findCustomerUser(
         ctx: RequestContext,
         strategy: string,
         externalIdentifier: string,
+        checkCurrentChannelOnly = true,
     ): Promise<User | undefined> {
         const user = await this.findUser(ctx, strategy, externalIdentifier);
 
         if (user) {
             // Ensure this User is associated with a Customer
-            const customer = await this.customerService.findOneByUserId(ctx, user.id);
+            const customer = await this.customerService.findOneByUserId(
+                ctx,
+                user.id,
+                checkCurrentChannelOnly,
+            );
             if (customer) {
                 return user;
             }
@@ -205,21 +214,16 @@ export class ExternalAuthenticationService {
         strategy: string,
         externalIdentifier: string,
     ): Promise<User | undefined> {
-        const usersWithMatchingIdentifier = await this.connection
+        const user = await this.connection
             .getRepository(ctx, User)
             .createQueryBuilder('user')
-            .leftJoinAndSelect('user.authenticationMethods', 'authMethod')
+            .leftJoinAndSelect('user.authenticationMethods', 'aums')
+            .leftJoin('user.authenticationMethods', 'authMethod')
             .andWhere('authMethod.externalIdentifier = :externalIdentifier', { externalIdentifier })
+            .andWhere('authMethod.strategy = :strategy', { strategy })
             .andWhere('user.deletedAt IS NULL')
-            .getMany();
-
-        const matchingUser = usersWithMatchingIdentifier.find(user =>
-            user.authenticationMethods.find(
-                m => m instanceof ExternalAuthenticationMethod && m.strategy === strategy,
-            ),
-        );
-
-        return matchingUser;
+            .getOne();
+        return user || undefined;
     }
 
     private async findExistingCustomerUserByEmailAddress(ctx: RequestContext, emailAddress: string) {

@@ -229,6 +229,15 @@ export const DELETE_PRODUCT = gql`
     }
 `;
 
+export const DELETE_PRODUCTS = gql`
+    mutation DeleteProducts($ids: [ID!]!) {
+        deleteProducts(ids: $ids) {
+            result
+            message
+        }
+    }
+`;
+
 export const CREATE_PRODUCT_VARIANTS = gql`
     mutation CreateProductVariants($input: [CreateProductVariantInput!]!) {
         createProductVariants(input: $input) {
@@ -301,8 +310,8 @@ export const ADD_OPTION_GROUP_TO_PRODUCT = gql`
 `;
 
 export const REMOVE_OPTION_GROUP_FROM_PRODUCT = gql`
-    mutation RemoveOptionGroupFromProduct($productId: ID!, $optionGroupId: ID!) {
-        removeOptionGroupFromProduct(productId: $productId, optionGroupId: $optionGroupId) {
+    mutation RemoveOptionGroupFromProduct($productId: ID!, $optionGroupId: ID!, $force: Boolean) {
+        removeOptionGroupFromProduct(productId: $productId, optionGroupId: $optionGroupId, force: $force) {
             ... on Product {
                 id
                 createdAt
@@ -355,27 +364,41 @@ export const GET_PRODUCT_SIMPLE = gql`
     ${ASSET_FRAGMENT}
 `;
 
+export const PRODUCT_FOR_LIST_FRAGMENT = gql`
+    fragment ProductForList on Product {
+        id
+        createdAt
+        updatedAt
+        enabled
+        languageCode
+        name
+        slug
+        featuredAsset {
+            id
+            createdAt
+            updatedAt
+            preview
+            focalPoint {
+                x
+                y
+            }
+        }
+        variantList {
+            totalItems
+        }
+    }
+`;
+
 export const GET_PRODUCT_LIST = gql`
     query GetProductList($options: ProductListOptions) {
         products(options: $options) {
             items {
-                id
-                createdAt
-                updatedAt
-                enabled
-                languageCode
-                name
-                slug
-                featuredAsset {
-                    id
-                    createdAt
-                    updatedAt
-                    preview
-                }
+                ...ProductForList
             }
             totalItems
         }
     }
+    ${PRODUCT_FOR_LIST_FRAGMENT}
 `;
 
 export const GET_PRODUCT_OPTION_GROUPS = gql`
@@ -476,6 +499,16 @@ export const SEARCH_PRODUCTS = gql`
                 enabled
                 productId
                 productName
+                slug
+                priceWithTax {
+                    ... on PriceRange {
+                        min
+                        max
+                    }
+                    ... on SinglePrice {
+                        value
+                    }
+                }
                 productAsset {
                     id
                     preview
@@ -484,6 +517,7 @@ export const SEARCH_PRODUCTS = gql`
                         y
                     }
                 }
+                currencyCode
                 productVariantId
                 productVariantName
                 productVariantAsset {
@@ -589,6 +623,7 @@ export const GET_PRODUCT_VARIANT_OPTIONS = gql`
             createdAt
             updatedAt
             name
+            languageCode
             optionGroups {
                 ...ProductOptionGroup
                 options {
@@ -603,6 +638,8 @@ export const GET_PRODUCT_VARIANT_OPTIONS = gql`
                 name
                 sku
                 price
+                priceWithTax
+                currencyCode
                 stockOnHand
                 enabled
                 options {
@@ -674,6 +711,10 @@ export const GET_PRODUCT_VARIANT = gql`
             id
             name
             sku
+            stockOnHand
+            stockAllocated
+            stockLevel
+            useGlobalOutOfStockThreshold
             featuredAsset {
                 id
                 preview
@@ -682,6 +723,8 @@ export const GET_PRODUCT_VARIANT = gql`
                     y
                 }
             }
+            price
+            priceWithTax
             product {
                 id
                 featuredAsset {
@@ -729,8 +772,8 @@ export const GET_PRODUCT_VARIANT_LIST_SIMPLE = gql`
     }
 `;
 
-export const GET_PRODUCT_VARIANT_LIST = gql`
-    query GetProductVariantList($options: ProductVariantListOptions!, $productId: ID) {
+export const GET_PRODUCT_VARIANT_LIST_FOR_PRODUCT = gql`
+    query GetProductVariantListForProduct($options: ProductVariantListOptions!, $productId: ID) {
         productVariants(options: $options, productId: $productId) {
             items {
                 ...ProductVariant
@@ -739,6 +782,47 @@ export const GET_PRODUCT_VARIANT_LIST = gql`
         }
     }
     ${PRODUCT_VARIANT_FRAGMENT}
+`;
+
+export const GET_PRODUCT_VARIANT_LIST = gql`
+    query GetProductVariantList($options: ProductVariantListOptions!) {
+        productVariants(options: $options) {
+            items {
+                id
+                createdAt
+                updatedAt
+                enabled
+                languageCode
+                name
+                price
+                currencyCode
+                priceWithTax
+                trackInventory
+                outOfStockThreshold
+                stockLevels {
+                    id
+                    createdAt
+                    updatedAt
+                    stockLocationId
+                    stockOnHand
+                    stockAllocated
+                    stockLocation {
+                        id
+                        createdAt
+                        updatedAt
+                        name
+                    }
+                }
+                useGlobalOutOfStockThreshold
+                sku
+                featuredAsset {
+                    ...Asset
+                }
+            }
+            totalItems
+        }
+    }
+    ${ASSET_FRAGMENT}
 `;
 
 export const GET_TAG_LIST = gql`

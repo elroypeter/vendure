@@ -13,11 +13,11 @@ Since a VendurePlugin is built on top of the Nestjs module system, any plugin (a
 * beforeApplicationShutdown
 * onApplicationShutdown
 
-Note that lifecycle hooks are run in _both_ the server and worker contexts.
+Note that lifecycle hooks are run in _both_ the server and worker contexts. If you have code that should only run either in the server context or worker context, you can inject the [ProcessContext]({{< relref "process-context" >}}) provider.
 
 ## Configure
 
-Another hook which is not strictly a lifecycle hook, but which can be useful to know is the [`configure` method](https://docs.nestjs.com/middleware#applying-middleware) which is used by NestJS to apply middleware. This method is called _only_ for the server and _not_ for the worker, since middleware relates to the network stack, and the worker has no network part.
+Another hook that is not strictly a lifecycle hook, but which can be useful to know is the [`configure` method](https://docs.nestjs.com/middleware#applying-middleware) which is used by NestJS to apply middleware. This method is called _only_ for the server and _not_ for the worker, since middleware relates to the network stack, and the worker has no network part.
 
 ## Example
 

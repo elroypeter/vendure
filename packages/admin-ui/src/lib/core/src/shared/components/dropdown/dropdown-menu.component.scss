@@ -5,6 +5,19 @@
 .dropdown-content-wrapper {
 }
 
+::ng-deep {
+    .dropdown-menu {
+        max-width: initial;
+    }
+    .dropdown-menu .dropdown-item {
+        display: flex;
+        align-items: center;
+        clr-icon {
+            margin-right: 3px;
+        }
+    }
+}
+
 .dropdown.open > .dropdown-menu {
     position: relative;
     top: 0;

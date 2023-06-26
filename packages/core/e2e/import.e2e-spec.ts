@@ -5,6 +5,7 @@ import * as fs from 'fs';
 import gql from 'graphql-tag';
 import http from 'http';
 import path from 'path';
+import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
 import { initialData } from '../../../e2e-common/e2e-initial-data';
 import { testConfig, TEST_SETUP_TIMEOUT_MS } from '../../../e2e-common/test-config';
@@ -35,7 +36,10 @@ describe('Import resolver', () => {
                     type: 'localeString',
                 },
             ],
-            ProductVariant: [{ type: 'int', name: 'weight' }],
+            ProductVariant: [
+                { type: 'boolean', name: 'valid' },
+                { type: 'int', name: 'weight' },
+            ],
         },
     });
 
@@ -82,7 +86,7 @@ describe('Import resolver', () => {
         });
 
         expect(result.importProducts.errors).toEqual([
-            'Invalid Record Length: header length is 19, got 1 on line 8',
+            'Invalid Record Length: header length is 20, got 1 on line 8',
         ]);
         expect(result.importProducts.imported).toBe(4);
         expect(result.importProducts.processed).toBe(4);
@@ -176,6 +180,7 @@ describe('Import resolver', () => {
                                     }
                                 }
                                 customFields {
+                                    valid
                                     weight
                                 }
                             }
@@ -238,10 +243,15 @@ describe('Import resolver', () => {
         expect(smock.customFields.owner.id).toBe('T_1');
 
         // Import non-list custom fields
+        expect(smock.variants[0].customFields.valid).toEqual(true);
         expect(smock.variants[0].customFields.weight).toEqual(500);
+        expect(smock.variants[1].customFields.valid).toEqual(false);
         expect(smock.variants[1].customFields.weight).toEqual(500);
+        expect(smock.variants[2].customFields.valid).toEqual(null);
         expect(smock.variants[2].customFields.weight).toEqual(500);
+        expect(smock.variants[3].customFields.valid).toEqual(true);
         expect(smock.variants[3].customFields.weight).toEqual(500);
+        expect(smock.variants[4].customFields.valid).toEqual(false);
         expect(smock.variants[4].customFields.weight).toEqual(null);
 
         // Import list custom fields

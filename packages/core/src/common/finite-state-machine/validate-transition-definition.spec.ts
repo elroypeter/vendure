@@ -1,3 +1,5 @@
+import { describe, expect, it } from 'vitest';
+
 import { OrderState } from '../../service/helpers/order-state-machine/order-state';
 
 import { Transitions } from './types';
@@ -18,7 +20,10 @@ describe('FSM validateTransitionDefinition()', () => {
     it('valid complex definition', () => {
         const orderStateTransitions: Transitions<OrderState> = {
             Created: {
-                to: ['AddingItems'],
+                to: ['AddingItems', 'Draft'],
+            },
+            Draft: {
+                to: ['ArrangingPayment'],
             },
             AddingItems: {
                 to: ['ArrangingPayment', 'Cancelled'],
